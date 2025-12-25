@@ -604,12 +604,14 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
     if role == 'chauffeur':
         query += ' AND c.visible_chauffeur = true'
     
-    # OPTIMISATION: Tri chronologique par heure PEC prévue (ordre croissant)
+    # OPTIMISATION: Tri chronologique par DATE puis HEURE
     query += ''' 
-        ORDER BY COALESCE(
-            c.heure_pec_prevue::time,
-            (c.heure_prevue AT TIME ZONE 'Europe/Paris')::time
-        ) ASC
+        ORDER BY 
+            DATE(c.heure_prevue) ASC,
+            COALESCE(
+                c.heure_pec_prevue::time,
+                (c.heure_prevue AT TIME ZONE 'Europe/Paris')::time
+            ) ASC
     '''
     
     # LIMIT SQL
