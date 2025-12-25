@@ -1348,9 +1348,6 @@ def secretaire_page():
     
     col_deconnexion, col_refresh = st.columns([1, 6])
     
-    st.title("🚖 Mes courses")
-    st.markdown(f"**Connecté en tant que :** {st.session_state.user['full_name']} (Chauffeur)")
-    
     with col_deconnexion:
         if st.button("🚪 Déconnexion"):
             del st.session_state.user
@@ -1561,6 +1558,9 @@ def secretaire_page():
                                 
                                 if 'course_to_duplicate' in st.session_state:
                                     del st.session_state.course_to_duplicate
+                                
+                                # Recharger la page pour afficher le bouton notification
+                                st.rerun()
                         else:
                             st.error("❌ Chauffeur non trouvé")
                     else:
