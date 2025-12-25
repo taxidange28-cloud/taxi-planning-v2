@@ -2660,7 +2660,7 @@ def chauffeur_page():
     # AUTO-REFRESH AUTOMATIQUE (30 secondes) - CORRIGÉ
     # ============================================
     # Timer JavaScript qui force le refresh toutes les 30 secondes
-    st.components.html(
+    components.html(
         f"""
         <script>
             // Timer de 30 secondes pour auto-refresh
@@ -2718,7 +2718,7 @@ def chauffeur_page():
         
         # VIBRATION + SON + NOTIFICATION NATIVE (une seule fois)
         if not st.session_state.get('notification_sound_played', False):
-            st.components.html(f"""
+            components.html(f"""
             <script>
                 // 1. VIBRATION (fonctionne sur Android Chrome)
                 if (navigator.vibrate) {{
