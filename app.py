@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
@@ -2656,25 +2657,10 @@ def chauffeur_page():
     """Interface Chauffeur - OPTIMISÉE avec système de notifications"""
     
     # ============================================
-    # AUTO-REFRESH AUTOMATIQUE (30 secondes) - 100% PYTHON
+    # AUTO-REFRESH AUTOMATIQUE (30 secondes) - STREAMLIT-AUTOREFRESH
     # ============================================
-    import time
-    
-    # Initialiser le timestamp du dernier refresh
-    if 'last_refresh_time' not in st.session_state:
-        st.session_state.last_refresh_time = datetime.now(TIMEZONE)
-    
-    # Calculer le temps écoulé
-    elapsed = (datetime.now(TIMEZONE) - st.session_state.last_refresh_time).total_seconds()
-    
-    # Afficher le compteur
-    remaining = max(0, int(30 - elapsed))
-    
-    # Auto-refresh toutes les 30 secondes
-    if elapsed >= 30:
-        st.session_state.last_refresh_time = datetime.now(TIMEZONE)
-        time.sleep(0.1)  # Petit délai pour stabilité
-        st.rerun()
+    # Package officiel qui fonctionne vraiment !
+    count = st_autorefresh(interval=30000, key="chauffeur_autorefresh")
     
     # ============================================
     # ============================================
@@ -2739,8 +2725,7 @@ def chauffeur_page():
             st.rerun()
     
     with col_refresh:
-        if st.button(f"🔄 Actualiser (auto dans {remaining}s)", use_container_width=True):
-            st.session_state.last_refresh_time = datetime.now(TIMEZONE)
+        if st.button("🔄 Actualiser (auto: 30s)", use_container_width=True):
             st.rerun()
     
     st.markdown("---")
