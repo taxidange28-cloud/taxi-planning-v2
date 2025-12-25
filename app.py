@@ -2657,15 +2657,33 @@ def chauffeur_page():
     """Interface Chauffeur - OPTIMISÉE avec système de notifications"""
     
     # ============================================
-    # AUTO-REFRESH AUTOMATIQUE (30 secondes)
+    # AUTO-REFRESH AUTOMATIQUE (30 secondes) - CORRIGÉ
     # ============================================
-    if 'last_auto_refresh' not in st.session_state:
-        st.session_state.last_auto_refresh = datetime.now(TIMEZONE)
-    
-    time_since_refresh = (datetime.now(TIMEZONE) - st.session_state.last_auto_refresh).seconds
-    if time_since_refresh >= 30:
-        st.session_state.last_auto_refresh = datetime.now(TIMEZONE)
-        st.rerun()
+    # Timer JavaScript qui force le refresh toutes les 30 secondes
+    st.components.html(
+        f"""
+        <script>
+            // Timer de 30 secondes pour auto-refresh
+            setTimeout(function() {{
+                window.parent.location.reload();
+            }}, 30000);
+            
+            // Afficher le compteur
+            var seconds = 30;
+            var countdownElement = document.createElement('div');
+            countdownElement.id = 'countdown';
+            countdownElement.style.display = 'none';
+            document.body.appendChild(countdownElement);
+            
+            setInterval(function() {{
+                seconds--;
+                if (seconds < 0) seconds = 30;
+                countdownElement.innerHTML = seconds;
+            }}, 1000);
+        </script>
+        """,
+        height=0
+    )
     
     # ============================================
     # ============================================
@@ -2698,13 +2716,57 @@ def chauffeur_page():
         </style>
         """, unsafe_allow_html=True)
         
-        # Son d'alerte (une seule fois)
+        # VIBRATION + SON + NOTIFICATION NATIVE (une seule fois)
         if not st.session_state.get('notification_sound_played', False):
-            st.markdown("""
-            <audio autoplay>
-                <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuB0fPTgjMGHm7A7+OZUQ0PVqzn77JfGAg+ltryy3oqBSh+zPLZiTQIGWe76+WcTgsQUKXi8LRiGwU2jdXxzn8pBSl6yO7cjT0JE1624+ytVBQKQ5vd8sJ2JQUqf9Py0YU" type="audio/wav">
-            </audio>
-            """, unsafe_allow_html=True)
+            st.components.html(f"""
+            <script>
+                // 1. VIBRATION (fonctionne sur Android Chrome)
+                if (navigator.vibrate) {{
+                    navigator.vibrate([500, 200, 500, 200, 500]); // 3 vibrations
+                }}
+                
+                // 2. SON (avec interaction utilisateur nécessaire sur mobile)
+                function playSound() {{
+                    var audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuB0fPTgjMGHm7A7+OZUQ0PVqzn77JfGAg+ltryy3oqBSh+zPLZiTQIGWe76+WcTgsQUKXi8LRiGwU2jdXxzn8pBSl6yO7cjT0JE1624+ytVBQKQ5vd8sJ2JQUqf9Py0YU');
+                    audio.volume = 1.0;
+                    audio.play().catch(function(err) {{
+                        console.log('Son bloqué par le navigateur:', err);
+                    }});
+                }}
+                
+                // Essayer de jouer le son immédiatement
+                playSound();
+                
+                // 3. NOTIFICATION NATIVE DU NAVIGATEUR
+                if ('Notification' in window) {{
+                    // Demander permission si pas encore donnée
+                    if (Notification.permission === 'default') {{
+                        Notification.requestPermission().then(function(permission) {{
+                            if (permission === 'granted') {{
+                                showNotification();
+                            }}
+                        }});
+                    }} else if (Notification.permission === 'granted') {{
+                        showNotification();
+                    }}
+                }}
+                
+                function showNotification() {{
+                    var notification = new Notification('🚖 Transport DanGE', {{
+                        body: '{unread_count} nouvelle(s) course(s) !',
+                        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">🚖</text></svg>',
+                        vibrate: [500, 200, 500, 200, 500],
+                        requireInteraction: true,
+                        tag: 'new-course'
+                    }});
+                    
+                    notification.onclick = function() {{
+                        window.focus();
+                        notification.close();
+                    }};
+                }}
+            </script>
+            """, height=0)
             st.session_state.notification_sound_played = True
         
         # Liste des notifications
@@ -2739,9 +2801,7 @@ def chauffeur_page():
             st.rerun()
     
     with col_refresh:
-        next_refresh = 30 - time_since_refresh
-        if st.button(f"🔄 Actualiser ({next_refresh}s)"):
-            st.session_state.last_auto_refresh = datetime.now(TIMEZONE)
+        if st.button("🔄 Actualiser (auto: 30s)"):
             st.rerun()
     
     st.markdown("---")
