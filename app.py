@@ -144,7 +144,8 @@ def get_db_connection():
 # Initialiser la base de données
 def init_db():
     # Tables déjà créées dans Supabase - cette fonction n'est plus nécessaire
-    pass
+    # MAIS on initialise la table notifications ici
+    init_notifications_table()
 
 
 # Fonction de hachage de mot de passe
@@ -202,6 +203,109 @@ def get_chauffeurs():
 
 
 # ============================================
+
+
+# ============================================
+# SYSTÈME DE NOTIFICATIONS
+# ============================================
+
+def init_notifications_table():
+    """Crée la table notifications si elle n'existe pas"""
+    conn = get_db_connection()
+    if not conn:
+        return
+    
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            id SERIAL PRIMARY KEY,
+            chauffeur_id INTEGER REFERENCES users(id),
+            course_id INTEGER,
+            message TEXT,
+            type VARCHAR(50),
+            lu BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    release_db_connection(conn)
+
+
+def create_notification(chauffeur_id, course_id, message, notification_type='nouvelle_course'):
+    """Crée une notification pour un chauffeur"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO notifications (chauffeur_id, course_id, message, type)
+        VALUES (%s, %s, %s, %s)
+    ''', (chauffeur_id, course_id, message, notification_type))
+    
+    conn.commit()
+    release_db_connection(conn)
+    return True
+
+
+def get_unread_notifications(chauffeur_id):
+    """Récupère les notifications non lues d'un chauffeur"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT n.id, n.message, n.type, n.created_at, n.course_id,
+               c.nom_client, c.adresse_pec, c.lieu_depose, c.heure_pec_prevue
+        FROM notifications n
+        LEFT JOIN courses c ON n.course_id = c.id
+        WHERE n.chauffeur_id = %s AND n.lu = FALSE
+        ORDER BY n.created_at DESC
+        LIMIT 20
+    ''', (chauffeur_id,))
+    
+    notifs = cursor.fetchall()
+    release_db_connection(conn)
+    
+    return [dict(n) for n in notifs]
+
+
+def mark_notifications_as_read(chauffeur_id):
+    """Marque toutes les notifications comme lues"""
+    conn = get_db_connection()
+    if not conn:
+        return
+    
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE notifications
+        SET lu = TRUE
+        WHERE chauffeur_id = %s AND lu = FALSE
+    ''', (chauffeur_id,))
+    
+    conn.commit()
+    release_db_connection(conn)
+
+
+def get_unread_count(chauffeur_id):
+    """Compte le nombre de notifications non lues"""
+    conn = get_db_connection()
+    if not conn:
+        return 0
+    
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT COUNT(*) FROM notifications
+        WHERE chauffeur_id = %s AND lu = FALSE
+    ''', (chauffeur_id,))
+    
+    result = cursor.fetchone()
+    release_db_connection(conn)
+    
+    return list(result.values())[0] if result else 0
+
+
 # FONCTIONS CLIENTS RÉGULIERS
 # ============================================
 
@@ -1408,9 +1512,36 @@ def secretaire_page():
                             course_id = create_course(course_data)
                             if course_id:
                                 st.success(f"✅ Course créée pour {selected_chauffeur}")
+                                
+                                # Stocker pour notification
+                                st.session_state['last_course_created'] = {
+                                    'id': course_id,
+                                    'chauffeur_id': chauffeur_id,
+                                    'chauffeur_name': selected_chauffeur,
+                                    'nom_client': nom_client,
+                                    'adresse_pec': adresse_pec,
+                                    'lieu_depose': lieu_depose,
+                                    'heure_pec': heure_pec_prevue if heure_pec_prevue else 'N/A',
+                                    'tarif': tarif_estime,
+                                    'km': km_estime
+                                }
+                                
+                                # Bouton pour notifier
+                                if st.button("📤 Notifier le chauffeur", type="primary", use_container_width=True):
+                                    message = f"🆕 Nouvelle course : {nom_client}\n⏰ {heure_pec_prevue if heure_pec_prevue else 'N/A'}\n📍 {adresse_pec} → {lieu_depose}\n💰 {tarif_estime}€ | {km_estime} km"
+                                    create_notification(
+                                        chauffeur_id=chauffeur_id,
+                                        course_id=course_id,
+                                        message=message,
+                                        notification_type='nouvelle_course'
+                                    )
+                                    st.success(f"✅ Notification envoyée à {selected_chauffeur} !")
+                                    if 'last_course_created' in st.session_state:
+                                        del st.session_state['last_course_created']
+                                    st.balloons()
+                                    
                                 if 'course_to_duplicate' in st.session_state:
                                     del st.session_state.course_to_duplicate
-                                st.rerun()
                         else:
                             st.error("❌ Chauffeur non trouvé")
                     else:
@@ -2523,6 +2654,64 @@ def chauffeur_page():
     
     st.title("🚖 Mes courses")
     st.markdown(f"**Connecté en tant que :** {st.session_state.user['full_name']} (Chauffeur)")
+    
+    # ============================================
+    # SYSTÈME DE NOTIFICATIONS
+    # ============================================
+    unread_count = get_unread_count(st.session_state.user['id'])
+    
+    if unread_count > 0:
+        # Badge de notification
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #FF4444 0%, #CC0000 100%); 
+                    color: white; padding: 15px 25px; 
+                    border-radius: 30px; display: inline-block; font-weight: bold;
+                    margin-bottom: 20px; animation: pulse 2s infinite;
+                    box-shadow: 0 4px 15px rgba(255,68,68,0.4);">
+            🔔 {unread_count} nouvelle(s) notification(s) !
+        </div>
+        <style>
+        @keyframes pulse {{{{
+            0% {{{{ opacity: 1; transform: scale(1); }}}}
+            50% {{{{ opacity: 0.8; transform: scale(1.05); }}}}
+            100% {{{{ opacity: 1; transform: scale(1); }}}}
+        }}}}
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Son d'alerte (une seule fois)
+        if not st.session_state.get('notification_sound_played', False):
+            st.markdown("""
+            <audio autoplay>
+                <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuB0fPTgjMGHm7A7+OZUQ0PVqzn77JfGAg+ltryy3oqBSh+zPLZiTQIGWe76+WcTgsQUKXi8LRiGwU2jdXxzn8pBSl6yO7cjT0JE1624+ytVBQKQ5vd8sJ2JQUqf9Py0YU" type="audio/wav">
+            </audio>
+            """, unsafe_allow_html=True)
+            st.session_state.notification_sound_played = True
+        
+        # Liste des notifications
+        with st.expander("📋 Voir les notifications", expanded=True):
+            notifications = get_unread_notifications(st.session_state.user['id'])
+            
+            for notif in notifications:
+                icon = {
+                    'nouvelle_course': '🆕',
+                    'modification': '✏️',
+                    'changement_chauffeur': '🔄',
+                    'annulation': '❌'
+                }.get(notif['type'], '📢')
+                
+                st.info(f"{icon} **{notif['message']}**")
+                
+                if notif.get('nom_client'):
+                    heure = notif.get('heure_pec_prevue', 'N/A')
+                    st.caption(f"👤 {notif['nom_client']} | ⏰ {heure}")
+                    st.caption(f"📍 {notif.get('adresse_pec', 'N/A')} → {notif.get('lieu_depose', 'N/A')}")
+            
+            if st.button("✅ Marquer tout comme lu", use_container_width=True):
+                mark_notifications_as_read(st.session_state.user['id'])
+                st.session_state.notification_sound_played = False
+                st.rerun()
+    
     
     
     with col_deconnexion:
