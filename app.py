@@ -12,17 +12,6 @@ import pytz
 # Import du module Assistant Intelligent
 from assistant import suggest_best_driver, calculate_distance
 
-# Import du module Notifications
-from notifications import (
-    get_unread_notifications_count,
-    get_unread_notifications,
-    mark_all_notifications_as_read,
-    get_user_notification_settings,
-    update_user_notification_settings,
-    notify_new_course_sms,
-    get_notification_sound_base64
-)
-
 # ============================================
 # OPTIMISATIONS APPLIQUÉES - V2.0
 # ============================================
