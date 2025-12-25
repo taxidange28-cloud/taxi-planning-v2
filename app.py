@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
@@ -1094,57 +1093,9 @@ def reassign_course_to_driver(course_id, new_chauffeur_id):
 # ============================================
 
 def login_page():
-    """Interface de connexion avec système 'Se souvenir de moi'"""
+    """Interface de connexion - VERSION SIMPLE 100% PYTHON"""
     st.title("Transport DanGE - Planning des courses")
     st.markdown("---")
-    
-    # ============================================
-    # AUTO-LOGIN SI TOKEN VALIDE DANS URL
-    # ============================================
-    query_params = st.query_params
-    if 'auto_login' in query_params and 'user_id' in query_params:
-        try:
-            user_id = int(query_params['user_id'])
-            # Récupérer l'utilisateur depuis la DB
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute('SELECT id, username, role, full_name FROM users WHERE id = %s', (user_id,))
-                user = cursor.fetchone()
-                release_db_connection(conn)
-                
-                if user:
-                    st.session_state.user = dict(user)
-                    # Nettoyer les query params et recharger
-                    st.query_params.clear()
-                    st.rerun()
-        except:
-            pass
-    
-    # ============================================
-    # VÉRIFIER localStorage ET PROPOSER AUTO-LOGIN
-    # ============================================
-    auto_login_check = components.html("""
-    <div id="auto-login-status"></div>
-    <script>
-        var savedUserId = localStorage.getItem('taxi_user_id');
-        var savedExpiry = localStorage.getItem('taxi_expiry');
-        
-        if (savedUserId && savedExpiry) {
-            var now = new Date().getTime();
-            if (now < parseInt(savedExpiry)) {
-                // Token valide, rediriger avec query params
-                var url = window.location.href.split('?')[0];
-                window.location.href = url + '?auto_login=true&user_id=' + savedUserId;
-            } else {
-                // Expirés, les supprimer
-                localStorage.removeItem('taxi_user_id');
-                localStorage.removeItem('taxi_expiry');
-                document.getElementById('auto-login-status').innerHTML = 'Session expirée';
-            }
-        }
-    </script>
-    """, height=0)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
@@ -1153,42 +1104,13 @@ def login_page():
         username = st.text_input("Nom d'utilisateur")
         password = st.text_input("Mot de passe", type="password")
         
-        # Case à cocher "Se souvenir de moi"
-        remember_me = st.checkbox("✅ Se souvenir de moi (10 heures)", value=False)
-        if remember_me:
-            st.caption("Vous resterez connecté même après fermeture du navigateur")
-        
         if st.button("Se connecter", use_container_width=True):
             user = login(username, password)
             if user:
                 st.session_state.user = user
-                
-                # Si "Se souvenir de moi" est coché, sauvegarder dans localStorage
-                if remember_me:
-                    # Calculer l'expiration (10 heures en millisecondes)
-                    expiry_ms = int((datetime.now().timestamp() + 10*3600) * 1000)
-                    
-                    save_token = components.html(f"""
-                    <script>
-                        localStorage.setItem('taxi_user_id', '{user['id']}');
-                        localStorage.setItem('taxi_expiry', '{expiry_ms}');
-                        console.log('Session sauvegardée pour 10 heures');
-                    </script>
-                    """, height=0)
-                
                 st.rerun()
             else:
                 st.error("Nom d'utilisateur ou mot de passe incorrect")
-        
-        # Bouton pour effacer la session sauvegardée
-        if st.button("🗑️ Oublier cet appareil", use_container_width=True):
-            clear_storage = components.html("""
-            <script>
-                localStorage.removeItem('taxi_user_id');
-                localStorage.removeItem('taxi_expiry');
-                alert('Session effacée de cet appareil');
-            </script>
-            """, height=0)
 
 
 def admin_page():
@@ -2734,8 +2656,10 @@ def chauffeur_page():
     """Interface Chauffeur - OPTIMISÉE avec système de notifications"""
     
     # ============================================
-    # AUTO-REFRESH AUTOMATIQUE (30 secondes) - VERSION QUI PRÉSERVE LA SESSION
+    # AUTO-REFRESH AUTOMATIQUE (30 secondes) - 100% PYTHON
     # ============================================
+    import time
+    
     # Initialiser le timestamp du dernier refresh
     if 'last_refresh_time' not in st.session_state:
         st.session_state.last_refresh_time = datetime.now(TIMEZONE)
@@ -2743,28 +2667,14 @@ def chauffeur_page():
     # Calculer le temps écoulé
     elapsed = (datetime.now(TIMEZONE) - st.session_state.last_refresh_time).total_seconds()
     
-    # Auto-refresh toutes les 30 secondes avec st.rerun() qui préserve la session
+    # Afficher le compteur
+    remaining = max(0, int(30 - elapsed))
+    
+    # Auto-refresh toutes les 30 secondes
     if elapsed >= 30:
         st.session_state.last_refresh_time = datetime.now(TIMEZONE)
+        time.sleep(0.1)  # Petit délai pour stabilité
         st.rerun()
-    
-    # Afficher un timer visuel avec JavaScript (sans reload)
-    remaining = int(30 - elapsed)
-    components.html(f"""
-    <div id="refresh-timer" style="position: fixed; bottom: 10px; right: 10px; 
-         background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; 
-         border-radius: 15px; font-size: 12px; z-index: 9999;">
-        🔄 Auto-refresh: {remaining}s
-    </div>
-    <script>
-        var seconds = {remaining};
-        setInterval(function() {{
-            seconds--;
-            if (seconds < 0) seconds = 30;
-            document.getElementById('refresh-timer').innerHTML = '🔄 Auto-refresh: ' + seconds + 's';
-        }}, 1000);
-    </script>
-    """, height=0)
     
     # ============================================
     # ============================================
@@ -2796,59 +2706,6 @@ def chauffeur_page():
         }}}}
         </style>
         """, unsafe_allow_html=True)
-        
-        # VIBRATION + SON + NOTIFICATION NATIVE (une seule fois)
-        if not st.session_state.get('notification_sound_played', False):
-            components.html(f"""
-            <script>
-                // 1. VIBRATION (fonctionne sur Android Chrome)
-                if (navigator.vibrate) {{
-                    navigator.vibrate([500, 200, 500, 200, 500]); // 3 vibrations
-                }}
-                
-                // 2. SON (avec interaction utilisateur nécessaire sur mobile)
-                function playSound() {{
-                    var audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuB0fPTgjMGHm7A7+OZUQ0PVqzn77JfGAg+ltryy3oqBSh+zPLZiTQIGWe76+WcTgsQUKXi8LRiGwU2jdXxzn8pBSl6yO7cjT0JE1624+ytVBQKQ5vd8sJ2JQUqf9Py0YU');
-                    audio.volume = 1.0;
-                    audio.play().catch(function(err) {{
-                        console.log('Son bloqué par le navigateur:', err);
-                    }});
-                }}
-                
-                // Essayer de jouer le son immédiatement
-                playSound();
-                
-                // 3. NOTIFICATION NATIVE DU NAVIGATEUR
-                if ('Notification' in window) {{
-                    // Demander permission si pas encore donnée
-                    if (Notification.permission === 'default') {{
-                        Notification.requestPermission().then(function(permission) {{
-                            if (permission === 'granted') {{
-                                showNotification();
-                            }}
-                        }});
-                    }} else if (Notification.permission === 'granted') {{
-                        showNotification();
-                    }}
-                }}
-                
-                function showNotification() {{
-                    var notification = new Notification('🚖 Transport DanGE', {{
-                        body: '{unread_count} nouvelle(s) course(s) !',
-                        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">🚖</text></svg>',
-                        vibrate: [500, 200, 500, 200, 500],
-                        requireInteraction: true,
-                        tag: 'new-course'
-                    }});
-                    
-                    notification.onclick = function() {{
-                        window.focus();
-                        notification.close();
-                    }};
-                }}
-            </script>
-            """, height=0)
-            st.session_state.notification_sound_played = True
         
         # Liste des notifications
         with st.expander("📋 Voir les notifications", expanded=True):
@@ -2882,7 +2739,8 @@ def chauffeur_page():
             st.rerun()
     
     with col_refresh:
-        if st.button("🔄 Actualiser (auto: 30s)"):
+        if st.button(f"🔄 Actualiser (auto dans {remaining}s)", use_container_width=True):
+            st.session_state.last_refresh_time = datetime.now(TIMEZONE)
             st.rerun()
     
     st.markdown("---")
