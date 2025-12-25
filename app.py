@@ -2,7 +2,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from psycopg2 import pool
 import hashlib
 import pandas as pd
 from datetime import datetime, timedelta
@@ -61,64 +60,18 @@ st.set_page_config(
 # ============================================
 
 
-
-
-# ============================================
-# CONNECTION POOLING - OPTIMISATION #5
-# ============================================
-@st.cache_resource
-def get_connection_pool():
-    """Crée un pool de connexions réutilisables - GAIN DE VITESSE"""
-    try:
-        if "connection_string" in st.secrets.get("supabase", {}):
-            return pool.SimpleConnectionPool(
-                1, 5,  # Min 1, Max 5 connexions
-                st.secrets["supabase"]["connection_string"]
-            )
-        else:
-            return pool.SimpleConnectionPool(
-                1, 5,
-                host=st.secrets["supabase"]["host"],
-                database=st.secrets["supabase"]["database"],
-                user=st.secrets["supabase"]["user"],
-                password=st.secrets["supabase"]["password"],
-                port=st.secrets["supabase"]["port"],
-                sslmode='require'
-            )
-    except Exception as e:
-        st.error(f"Erreur pool connexion: {e}")
-        return None
-
-
-def release_db_connection(conn):
-    """Remet la connexion dans le pool au lieu de la fermer - OPTIMISATION"""
-    try:
-        conn_pool = get_connection_pool()
-        if conn_pool:
-            conn_pool.putconn(conn)
-        else:
-            release_db_connection(conn)
-    except:
-        if conn:
-            release_db_connection(conn)
-
 # Connexion à la base de données Supabase PostgreSQL
 def get_db_connection():
-    """Récupère une connexion depuis le pool - OPTIMISÉ"""
+    """Connexion à PostgreSQL Supabase avec secrets Streamlit"""
     try:
-        conn_pool = get_connection_pool()
-        if conn_pool:
-            conn = conn_pool.getconn()
-            conn.cursor_factory = RealDictCursor
-            return conn
-        
-        # Fallback si pool échoue
+        # Essayer avec connection string si disponible
         if "connection_string" in st.secrets.get("supabase", {}):
             conn = psycopg2.connect(
                 st.secrets["supabase"]["connection_string"],
                 cursor_factory=RealDictCursor
             )
         else:
+            # Sinon utiliser les paramètres individuels avec sslmode
             conn = psycopg2.connect(
                 host=st.secrets["supabase"]["host"],
                 database=st.secrets["supabase"]["database"],
@@ -160,7 +113,7 @@ def login(username, password):
     ''', (username, hashed_password))
     
     user = cursor.fetchone()
-    release_db_connection(conn)
+    conn.close()
     
     if user:
         return {
@@ -189,52 +142,10 @@ def get_chauffeurs():
         ORDER BY full_name
     ''')
     chauffeurs = cursor.fetchall()
-    release_db_connection(conn)
+    conn.close()
     
     return [{'id': c['id'], 'full_name': c['full_name'], 'username': c['username']} for c in chauffeurs]
 
-
-
-
-# ============================================
-# SESSION STATE INTELLIGENT - OPTIMISATION #2
-# ============================================
-
-def invalidate_courses_cache():
-    """Invalide le cache des courses après modification"""
-    for key in list(st.session_state.keys()):
-        if key.startswith('cache_courses'):
-            del st.session_state[key]
-        if key.startswith('timestamp_courses'):
-            del st.session_state[key]
-
-
-def get_cached_courses(cache_key, fetch_function, *args, ttl=30):
-    """
-    Récupère les courses du cache si disponibles et récentes
-    OPTIMISATION: Évite les requêtes répétées
-    
-    Args:
-        cache_key: Clé unique pour ce cache
-        fetch_function: Fonction à appeler si cache absent
-        *args: Arguments pour fetch_function
-        ttl: Durée de vie du cache en secondes (défaut 30s)
-    """
-    full_cache_key = f"cache_courses_{cache_key}"
-    timestamp_key = f"timestamp_courses_{cache_key}"
-    
-    # Vérifier si cache existe et est récent
-    if full_cache_key in st.session_state and timestamp_key in st.session_state:
-        age = (datetime.now() - st.session_state[timestamp_key]).seconds
-        if age < ttl:
-            return st.session_state[full_cache_key]
-    
-    # Sinon, charger depuis DB
-    data = fetch_function(*args)
-    st.session_state[full_cache_key] = data
-    st.session_state[timestamp_key] = datetime.now()
-    
-    return data
 
 # ============================================
 # FONCTIONS CLIENTS RÉGULIERS
@@ -263,7 +174,7 @@ def create_client_regulier(data):
     ))
     client_id = cursor.lastrowid
     conn.commit()
-    release_db_connection(conn)
+    conn.close()
     return client_id
 
 
@@ -288,7 +199,7 @@ def get_clients_reguliers(search_term=None):
         ''')
     
     clients = cursor.fetchall()
-    release_db_connection(conn)
+    conn.close()
     
     result = []
     for client in clients:
@@ -315,7 +226,7 @@ def get_client_regulier(client_id):
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM clients_reguliers WHERE id = %s', (client_id,))
     client = cursor.fetchone()
-    release_db_connection(conn)
+    conn.close()
     
     if client:
         return {
@@ -356,7 +267,7 @@ def update_client_regulier(client_id, data):
         client_id
     ))
     conn.commit()
-    release_db_connection(conn)
+    conn.close()
 
 
 def delete_client_regulier(client_id):
@@ -367,7 +278,7 @@ def delete_client_regulier(client_id):
     cursor = conn.cursor()
     cursor.execute('UPDATE clients_reguliers SET actif = 0 WHERE id = %s', (client_id,))
     conn.commit()
-    release_db_connection(conn)
+    conn.close()
 
 
 # ============================================
@@ -432,24 +343,7 @@ def create_course(data):
     course_id = result['id'] if result else None
     
     conn.commit()
-    release_db_connection(conn)
-    
-    # ============================================
-    # ENVOI SMS AUTOMATIQUE (NOUVEAU)
-    # ============================================
-    if course_id and visible_chauffeur:
-        # La course est visible aujourd'hui → notifier le chauffeur
-        try:
-            # Vérifier si le chauffeur a activé les SMS
-            settings = get_user_notification_settings(data['chauffeur_id'])
-            
-            if settings and settings['sms_notifications']:
-                # Envoyer SMS de notification
-                notify_new_course_sms(data['chauffeur_id'], data)
-        except Exception as e:
-            # Ne pas bloquer la création de course si SMS échoue
-            pass
-    
+    conn.close()
     return course_id
 
 
@@ -514,7 +408,7 @@ def extract_time_str(datetime_input):
 # ============================================
 # FONCTION OPTIMISÉE - CACHE RETIRÉ
 # ============================================
-def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, limit=100):
+def get_courses(chauffeur_id=None, date_filter=None, role=None):
     """
     Récupère les courses - CACHE RETIRÉ pour résoudre problème de clics multiples
     
@@ -535,18 +429,13 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
     '''
     params = []
     
-    # OPTIMISATION #1: LAZY LOADING - Seulement N derniers jours
-    if date_filter:
-        query += ' AND DATE(c.heure_prevue) = %s'
-        params.append(date_filter)
-    else:
-        date_limite = (datetime.now(TIMEZONE) - timedelta(days=days_back)).date()
-        query += ' AND DATE(c.heure_prevue) >= %s'
-        params.append(date_limite)
-    
     if chauffeur_id:
         query += ' AND c.chauffeur_id = %s'
         params.append(chauffeur_id)
+    
+    if date_filter:
+        query += ' AND DATE(c.heure_prevue) = %s'
+        params.append(date_filter)
     
     if role == 'chauffeur':
         query += ' AND c.visible_chauffeur = true'
@@ -556,15 +445,12 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
         ORDER BY COALESCE(
             c.heure_pec_prevue::time,
             (c.heure_prevue AT TIME ZONE 'Europe/Paris')::time
-        ) DESC
+        ) ASC
     '''
-    
-    # OPTIMISATION #3: LIMIT SQL
-    query += f' LIMIT {limit}'
     
     cursor.execute(query, params)
     courses = cursor.fetchall()
-    release_db_connection(conn)
+    conn.close()
     
     # Conversion optimisée avec gestion des champs optionnels
     result = []
@@ -621,7 +507,7 @@ def distribute_courses_for_date(date_str):
         
         count = cursor.rowcount
         conn.commit()
-        release_db_connection(conn)
+        conn.close()
         
         return {
             'success': True,
@@ -679,7 +565,7 @@ def export_week_to_excel(week_start_date):
         ''', (week_start_date, week_end_date))
         
         rows = cursor.fetchall()
-        release_db_connection(conn)
+        conn.close()
         
         if not rows or len(rows) == 0:
             return {
@@ -781,7 +667,7 @@ def purge_week_courses(week_start_date):
         course_ids = [row['id'] for row in cursor.fetchall()]
         
         if not course_ids:
-            release_db_connection(conn)
+            conn.close()
             return {'success': True, 'count': 0}
         
         cursor.execute('''
@@ -791,7 +677,7 @@ def purge_week_courses(week_start_date):
         
         count = cursor.rowcount
         conn.commit()
-        release_db_connection(conn)
+        conn.close()
         
         return {'success': True, 'count': count}
         
@@ -837,17 +723,7 @@ def update_course_status(course_id, new_status):
         ''', (new_status, course_id))
     
     conn.commit()
-    release_db_connection(conn)    
-    # OPTIMISATION #4: Update local du cache
-    for cache_key in list(st.session_state.keys()):
-        if cache_key.startswith('cache_courses'):
-            courses = st.session_state.get(cache_key, [])
-            for course in courses:
-                if course.get('id') == course_id:
-                    course['statut'] = new_status
-                    if new_status in timestamp_field:
-                        course[timestamp_field[new_status]] = now_paris
-    
+    conn.close()
     return True
 
 
@@ -866,7 +742,7 @@ def update_commentaire_chauffeur(course_id, commentaire):
     ''', (commentaire, course_id))
     
     conn.commit()
-    release_db_connection(conn)
+    conn.close()
     return True
 
 
@@ -885,7 +761,7 @@ def update_heure_pec_prevue(course_id, nouvelle_heure):
     ''', (nouvelle_heure, course_id))
     
     conn.commit()
-    release_db_connection(conn)
+    conn.close()
     return True
 
 
@@ -903,7 +779,7 @@ def delete_course(course_id):
     ''', (course_id,))
     
     conn.commit()
-    release_db_connection(conn)
+    conn.close()
     return True
 
 
@@ -922,7 +798,7 @@ def update_course_details(course_id, nouvelle_heure_pec, nouveau_chauffeur_id):
     ''', (nouvelle_heure_pec, nouveau_chauffeur_id, course_id))
     
     conn.commit()
-    release_db_connection(conn)
+    conn.close()
     return True
 
 
@@ -945,10 +821,10 @@ def create_user(username, password, role, full_name):
             VALUES (%s, %s, %s, %s)
         ''', (username, hashed_password, role, full_name))
         conn.commit()
-        release_db_connection(conn)
+        conn.close()
         return True
     except psycopg2.IntegrityError:
-        release_db_connection(conn)
+        conn.close()
         return False
 
 
@@ -969,15 +845,15 @@ def delete_user(user_id):
         user = cursor.fetchone()
         
         if user and user['role'] == 'admin' and admin_count <= 1:
-            release_db_connection(conn)
+            conn.close()
             return False, "Impossible de supprimer le dernier administrateur"
         
         cursor.execute('DELETE FROM users WHERE id = %s', (user_id,))
         conn.commit()
-        release_db_connection(conn)
+        conn.close()
         return True, "Utilisateur supprimé avec succès"
     except Exception as e:
-        release_db_connection(conn)
+        conn.close()
         return False, f"Erreur: {str(e)}"
 
 
@@ -994,7 +870,7 @@ def get_all_users():
         ORDER BY role, full_name
     ''')
     users = cursor.fetchall()
-    release_db_connection(conn)
+    conn.close()
     return users
 
 
@@ -1030,7 +906,7 @@ def reassign_course_to_driver(course_id, new_chauffeur_id):
         ''', (new_chauffeur_id, course_id))
         
         conn.commit()
-        release_db_connection(conn)
+        conn.close()
         
         return {
             'success': True,
@@ -1042,7 +918,7 @@ def reassign_course_to_driver(course_id, new_chauffeur_id):
             'new_chauffeur_name': new_chauffeur_name
         }
     else:
-        release_db_connection(conn)
+        conn.close()
         return {'success': False, 'error': 'Course non trouvée'}
 
 
@@ -1249,7 +1125,7 @@ def admin_page():
                 ca_total = get_scalar_result(cursor) or 0
                 st.metric("CA réalisé", f"{ca_total:.2f}€")
             
-            release_db_connection(conn)
+            conn.close()
     
     with tab4:
         st.subheader("💾 Export des données")
@@ -1283,7 +1159,7 @@ def admin_page():
                     ORDER BY c.heure_prevue
                 '''
                 df = pd.read_sql_query(query, conn, params=(export_date_debut, export_date_fin))
-                release_db_connection(conn)
+                conn.close()
                 
                 csv = df.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
@@ -2557,220 +2433,18 @@ def secretaire_page():
 # ============================================
 
 def chauffeur_page():
-    """Interface Chauffeur - OPTIMISÉE avec système de notifications"""
-    
-    # ============================================
-    # AUTO-REFRESH AUTOMATIQUE (30 secondes)
-    # ============================================
-    if 'last_auto_refresh' not in st.session_state:
-        st.session_state.last_auto_refresh = datetime.now(TIMEZONE)
-    
-    time_since_refresh = (datetime.now(TIMEZONE) - st.session_state.last_auto_refresh).seconds
-    if time_since_refresh >= 30:
-        st.session_state.last_auto_refresh = datetime.now(TIMEZONE)
-        st.rerun()
-    
-    # ============================================
-    # VÉRIFIER LES NOUVELLES NOTIFICATIONS
-    # ============================================
-    unread_count = get_unread_notifications_count(st.session_state.user['id'])
-    
-    # Si nouvelles notifications : jouer le son
-    if unread_count > 0 and not st.session_state.get('notifications_shown', False):
-        settings = get_user_notification_settings(st.session_state.user['id'])
-        
-        if settings and settings['sound_enabled']:
-            sound_b64 = get_notification_sound_base64()
-            sound_html = f"""
-            <audio autoplay>
-                <source src="data:audio/wav;base64,{sound_b64}" type="audio/wav">
-            </audio>
-            """
-            components.html(sound_html, height=0)
-        
-        st.session_state.notifications_shown = True
-    
-    # Réinitialiser le flag après 60 secondes
-    if st.session_state.get('notifications_shown', False):
-        if 'notification_time' not in st.session_state:
-            st.session_state.notification_time = datetime.now(TIMEZONE)
-        elif (datetime.now(TIMEZONE) - st.session_state.notification_time).seconds > 60:
-            st.session_state.notifications_shown = False
-            del st.session_state.notification_time
-    
-    # ============================================
-    # HEADER AVEC BADGE DE NOTIFICATION
-    # ============================================
-    st.title("🚖 Mes courses")
-    
-    # Badge de notification
-    if unread_count > 0:
-        st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #FF4444 0%, #CC0000 100%); 
-                    color: white; padding: 15px 25px; 
-                    border-radius: 30px; display: inline-block; font-weight: bold;
-                    margin-bottom: 20px; animation: pulse 2s infinite;
-                    box-shadow: 0 4px 15px rgba(255,68,68,0.4);">
-            🔔 {unread_count} nouvelle(s) course(s) !
-        </div>
-        <style>
-        @keyframes pulse {{
-            0% {{ opacity: 1; transform: scale(1); }}
-            50% {{ opacity: 0.8; transform: scale(1.05); }}
-            100% {{ opacity: 1; transform: scale(1); }}
-        }}
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Afficher les détails des notifications
-        with st.expander("📋 Voir les notifications", expanded=True):
-            notifications = get_unread_notifications(st.session_state.user['id'])
-            
-            for notif in notifications:
-                icon = {
-                    'nouvelle_course': '🆕',
-                    'modification': '✏️',
-                    'annulation': '❌',
-                    'urgent': '🚨'
-                }.get(notif['type'], '📢')
-                
-                st.info(f"{icon} **{notif['message']}**")
-                
-                if notif.get('nom_client'):
-                    st.caption(f"👤 {notif['nom_client']} | "
-                             f"📍 {notif.get('adresse_pec', 'N/A')} → {notif.get('lieu_depose', 'N/A')}")
-            
-            if st.button("✅ Marquer tout comme lu", use_container_width=True):
-                mark_all_notifications_as_read(st.session_state.user['id'])
-                st.session_state.notifications_shown = False
-                st.rerun()
-    
+    """Interface Chauffeur - OPTIMISÉE pour validations en 1 clic"""
+    st.title("Mes courses")
     st.markdown(f"**Connecté en tant que :** {st.session_state.user['full_name']} (Chauffeur)")
     
-    # ============================================
-    # BOUTONS AVEC INDICATEUR DE RAFRAÎCHISSEMENT
-    # ============================================
-    col_deconnexion, col_refresh, col_settings = st.columns([1, 1, 4])
-    
+    col_deconnexion, col_refresh = st.columns([1, 6])
     with col_deconnexion:
         if st.button("🚪 Déconnexion"):
             del st.session_state.user
             st.rerun()
-    
     with col_refresh:
-        next_refresh = 30 - time_since_refresh
-        if st.button(f"🔄 Actualiser ({next_refresh}s)"):
-            st.session_state.last_auto_refresh = datetime.now(TIMEZONE)
+        if st.button("🔄 Actualiser"):
             st.rerun()
-    
-    with col_settings:
-        if st.button("⚙️ Paramètres notifications"):
-            st.session_state.show_notification_settings = True
-            st.rerun()
-    
-    # ============================================
-    # PANNEAU PARAMÈTRES NOTIFICATIONS
-    # ============================================
-    if st.session_state.get('show_notification_settings', False):
-        st.markdown("---")
-        st.subheader("⚙️ Paramètres des notifications")
-        
-        settings = get_user_notification_settings(st.session_state.user['id'])
-        if not settings:
-            settings = {
-                'sound_enabled': True,
-                'sound_volume': 70,
-                'sms_notifications': False,
-                'free_mobile_user': '',
-                'free_mobile_pass': ''
-            }
-        
-        with st.form("notification_settings_form"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("### 🔊 Son d'alerte")
-                sound_enabled = st.checkbox(
-                    "Activer le son d'alerte",
-                    value=settings['sound_enabled']
-                )
-                
-                sound_volume = st.slider(
-                    "Volume du son",
-                    min_value=0,
-                    max_value=100,
-                    value=settings['sound_volume'],
-                    disabled=not sound_enabled
-                )
-            
-            with col2:
-                st.markdown("### 📱 SMS Free Mobile (gratuit)")
-                sms_enabled = st.checkbox(
-                    "Activer les notifications SMS",
-                    value=settings['sms_notifications']
-                )
-                
-                if sms_enabled:
-                    st.info("💡 Consultez le guide README_NOTIFICATIONS_FREE.md pour activer")
-                    
-                    free_user = st.text_input(
-                        "Identifiant Free Mobile (8 chiffres)",
-                        value=settings.get('free_mobile_user', ''),
-                        max_chars=8,
-                        help="Visible sur mobile.free.fr dans Mes Options > Notifications par SMS"
-                    )
-                    
-                    free_pass = st.text_input(
-                        "Clé API Free Mobile (16 caractères)",
-                        value=settings.get('free_mobile_pass', ''),
-                        type="password",
-                        max_chars=20,
-                        help="Visible sur mobile.free.fr dans Mes Options > Notifications par SMS"
-                    )
-                else:
-                    free_user = settings.get('free_mobile_user', '')
-                    free_pass = settings.get('free_mobile_pass', '')
-            
-            submitted = st.form_submit_button("💾 Enregistrer les paramètres", use_container_width=True, type="primary")
-            
-            if submitted:
-                new_settings = {
-                    'sound_enabled': sound_enabled,
-                    'sound_volume': sound_volume,
-                    'sms_notifications': sms_enabled,
-                    'free_mobile_user': free_user.strip(),
-                    'free_mobile_pass': free_pass.strip()
-                }
-                
-                if update_user_notification_settings(st.session_state.user['id'], new_settings):
-                    st.success("✅ Paramètres enregistrés avec succès !")
-                    st.session_state.show_notification_settings = False
-                    st.rerun()
-                else:
-                    st.error("❌ Erreur lors de l'enregistrement")
-        
-        # Bouton test SMS (en dehors du formulaire)
-        st.markdown("---")
-        col_test, col_close = st.columns(2)
-        
-        with col_test:
-            if settings.get('sms_notifications') and settings.get('free_mobile_user'):
-                if st.button("📤 Envoyer un SMS de test", use_container_width=True):
-                    from notifications import send_sms_free_mobile
-                    result = send_sms_free_mobile(
-                        st.session_state.user['id'],
-                        "🚖 Transport DanGE - Test de notification SMS réussi !"
-                    )
-                    
-                    if result['success']:
-                        st.success("✅ SMS de test envoyé ! Vérifiez votre téléphone dans quelques secondes.")
-                    else:
-                        st.error(f"❌ Erreur : {result['error']}")
-        
-        with col_close:
-            if st.button("❌ Fermer les paramètres", use_container_width=True):
-                st.session_state.show_notification_settings = False
-                st.rerun()
     
     st.markdown("---")
     
