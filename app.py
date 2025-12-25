@@ -1366,6 +1366,38 @@ def secretaire_page():
     with tab1:
         st.subheader("Créer une nouvelle course")
         
+        # ============================================
+        # BOUTON NOTIFICATION (HORS FORMULAIRE)
+        # ============================================
+        if 'pending_notification' in st.session_state:
+            notif = st.session_state['pending_notification']
+            
+            st.success(f"✅ Course créée pour **{notif['chauffeur_name']}** !")
+            st.info(f"👤 {notif['nom_client']} | ⏰ {notif['heure_pec']} | 📍 {notif['adresse_pec']} → {notif['lieu_depose']}")
+            
+            col_notif1, col_notif2 = st.columns([3, 2])
+            
+            with col_notif1:
+                if st.button("📤 Notifier le chauffeur", type="primary", use_container_width=True, key="btn_notify"):
+                    message = f"🆕 Nouvelle course : {notif['nom_client']}\n⏰ {notif['heure_pec']}\n📍 {notif['adresse_pec']} → {notif['lieu_depose']}\n💰 {notif['tarif']}€ | {notif['km']} km"
+                    create_notification(
+                        chauffeur_id=notif['chauffeur_id'],
+                        course_id=notif['course_id'],
+                        message=message,
+                        notification_type='nouvelle_course'
+                    )
+                    st.success(f"✅ Notification envoyée à {notif['chauffeur_name']} !")
+                    del st.session_state['pending_notification']
+                    st.balloons()
+                    st.rerun()
+            
+            with col_notif2:
+                if st.button("❌ Passer", use_container_width=True, key="btn_skip_notify"):
+                    del st.session_state['pending_notification']
+                    st.rerun()
+            
+            st.markdown("---")
+        
         # Gestion duplication
         course_dupliquee = None
         if 'course_to_duplicate' in st.session_state:
@@ -1512,34 +1544,21 @@ def secretaire_page():
                             course_id = create_course(course_data)
                             if course_id:
                                 st.success(f"✅ Course créée pour {selected_chauffeur}")
+                                st.success(f"✅ Course créée pour {selected_chauffeur}")
                                 
-                                # Stocker pour notification
-                                st.session_state['last_course_created'] = {
-                                    'id': course_id,
-                                    'chauffeur_id': chauffeur_id,
-                                    'chauffeur_name': selected_chauffeur,
-                                    'nom_client': nom_client,
-                                    'adresse_pec': adresse_pec,
-                                    'lieu_depose': lieu_depose,
-                                    'heure_pec': heure_pec_prevue if heure_pec_prevue else 'N/A',
-                                    'tarif': tarif_estime,
-                                    'km': km_estime
+                                # Stocker les infos pour afficher le bouton de notification HORS du formulaire
+                                st.session_state["pending_notification"] = {
+                                    "course_id": course_id,
+                                    "chauffeur_id": chauffeur_id,
+                                    "chauffeur_name": selected_chauffeur,
+                                    "nom_client": nom_client,
+                                    "adresse_pec": adresse_pec,
+                                    "lieu_depose": lieu_depose,
+                                    "heure_pec": heure_pec_prevue if heure_pec_prevue else "N/A",
+                                    "tarif": tarif_estime,
+                                    "km": km_estime
                                 }
                                 
-                                # Bouton pour notifier
-                                if st.button("📤 Notifier le chauffeur", type="primary", use_container_width=True):
-                                    message = f"🆕 Nouvelle course : {nom_client}\n⏰ {heure_pec_prevue if heure_pec_prevue else 'N/A'}\n📍 {adresse_pec} → {lieu_depose}\n💰 {tarif_estime}€ | {km_estime} km"
-                                    create_notification(
-                                        chauffeur_id=chauffeur_id,
-                                        course_id=course_id,
-                                        message=message,
-                                        notification_type='nouvelle_course'
-                                    )
-                                    st.success(f"✅ Notification envoyée à {selected_chauffeur} !")
-                                    if 'last_course_created' in st.session_state:
-                                        del st.session_state['last_course_created']
-                                    st.balloons()
-                                    
                                 if 'course_to_duplicate' in st.session_state:
                                     del st.session_state.course_to_duplicate
                         else:
