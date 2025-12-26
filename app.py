@@ -8,11 +8,15 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import pytz
+from weakref import WeakSet
 
 # Import du module Assistant Intelligent
 from assistant import suggest_best_driver, calculate_distance
 
-
+# ============================================
+# TRACKING POOL CONNEXIONS - V3.1 FINAL
+# ============================================
+_pool_connections = WeakSet()
 
 # ============================================
 # OPTIMISATIONS APPLIQUÉES - V3.0 ULTRA ⚡
@@ -74,21 +78,30 @@ st.set_page_config(
 # ============================================
 @st.cache_resource
 def get_connection_pool():
-    """Crée un pool de connexions réutilisables - GAIN DE VITESSE"""
+    """
+    Crée un pool de connexions réutilisables - OPTIMISÉ V3.1 FINAL
+    
+    AMÉLIORATIONS:
+    - Pool élargi : 1-10 connexions (au lieu de 1-5)
+    - Gestion robuste des secrets
+    - Évite erreurs si secrets mal configurés
+    """
     try:
-        if "connection_string" in st.secrets.get("supabase", {}):
+        supabase = st.secrets.get("supabase", {}) or {}
+        
+        if "connection_string" in supabase and supabase["connection_string"]:
             return pool.SimpleConnectionPool(
-                1, 5,
-                st.secrets["supabase"]["connection_string"]
+                1, 10,  # ✅ POOL ÉLARGI 1-10
+                supabase["connection_string"]
             )
         else:
             return pool.SimpleConnectionPool(
-                1, 5,
-                host=st.secrets["supabase"]["host"],
-                database=st.secrets["supabase"]["database"],
-                user=st.secrets["supabase"]["user"],
-                password=st.secrets["supabase"]["password"],
-                port=st.secrets["supabase"]["port"],
+                1, 10,  # ✅ POOL ÉLARGI 1-10
+                host=supabase.get("host"),
+                database=supabase.get("database"),
+                user=supabase.get("user"),
+                password=supabase.get("password"),
+                port=supabase.get("port"),
                 sslmode='require'
             )
     except Exception as e:
@@ -97,45 +110,87 @@ def get_connection_pool():
 
 
 def release_db_connection(conn):
-    """Remet la connexion dans le pool - OPTIMISATION"""
+    """
+    Remet la connexion dans le pool ou la ferme - OPTIMISÉ V3.1 FINAL
+    
+    CORRECTION CRITIQUE:
+    ❌ AVANT: Récursion infinie → crash
+    ✅ APRÈS: WeakSet pour tracker connexions pool → fermeture propre
+    """
+    global _pool_connections
+    
     try:
+        if not conn:
+            return
+        
         conn_pool = get_connection_pool()
-        if conn_pool:
-            conn_pool.putconn(conn)
+        
+        # ✅ Si la connexion vient du pool (présente dans WeakSet)
+        if conn in _pool_connections and conn_pool:
+            try:
+                conn_pool.putconn(conn)
+                _pool_connections.discard(conn)  # Retirer du tracking
+            except Exception:
+                # En cas d'erreur, fermer proprement
+                try:
+                    conn.close()
+                    _pool_connections.discard(conn)
+                except Exception:
+                    pass
         else:
-            release_db_connection(conn)
-    except:
-        if conn:
-            release_db_connection(conn)
+            # ✅ Fermeture pour les connexions directes
+            try:
+                conn.close()
+            except Exception:
+                pass
+                
+    except Exception as e:
+        # Ne pas récursiver - loguer seulement
+        print(f"Erreur release_db_connection: {e}")
 
 
 # Connexion à la base de données Supabase PostgreSQL
 def get_db_connection():
-    """Récupère une connexion depuis le pool - OPTIMISÉ"""
+    """
+    Récupère une connexion depuis le pool - OPTIMISÉ V3.1 FINAL
+    
+    AMÉLIORATIONS:
+    - WeakSet pour tracker connexions pool (au lieu de setattr)
+    - Gestion robuste fallback
+    - Conservation de RealDictCursor (ESSENTIEL!)
+    """
+    global _pool_connections
+    
     try:
         conn_pool = get_connection_pool()
         if conn_pool:
             conn = conn_pool.getconn()
-            conn.cursor_factory = RealDictCursor
+            conn.cursor_factory = RealDictCursor  # ✅ ESSENTIEL - Ne jamais retirer!
+            _pool_connections.add(conn)  # ✅ Ajouter au tracking
             return conn
         
-        # Fallback si pool échoue
-        if "connection_string" in st.secrets.get("supabase", {}):
+        # Fallback si pool échoue - connexion directe
+        supabase = st.secrets.get("supabase", {}) or {}
+        
+        if "connection_string" in supabase and supabase["connection_string"]:
             conn = psycopg2.connect(
-                st.secrets["supabase"]["connection_string"],
-                cursor_factory=RealDictCursor
+                supabase["connection_string"],
+                cursor_factory=RealDictCursor  # ✅ ESSENTIEL
             )
         else:
             conn = psycopg2.connect(
-                host=st.secrets["supabase"]["host"],
-                database=st.secrets["supabase"]["database"],
-                user=st.secrets["supabase"]["user"],
-                password=st.secrets["supabase"]["password"],
-                port=st.secrets["supabase"]["port"],
+                host=supabase.get("host"),
+                database=supabase.get("database"),
+                user=supabase.get("user"),
+                password=supabase.get("password"),
+                port=supabase.get("port"),
                 sslmode='require',
-                cursor_factory=RealDictCursor
+                cursor_factory=RealDictCursor  # ✅ ESSENTIEL
             )
+        
+        # Pas besoin de tracker les connexions directes
         return conn
+        
     except Exception as e:
         st.error(f"Erreur de connexion à la base de données: {e}")
         return None
