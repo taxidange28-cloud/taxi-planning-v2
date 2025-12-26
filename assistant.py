@@ -101,6 +101,8 @@ def calculate_distance(origin, destination, api_key):
         }
 
 
+# ============ FONCTIONS À AJOUTER DANS LES PROCHAINES ÉTAPES ============
+
 def calculate_driver_score(driver_data, course_data, api_key):
     """
     Calcule le score d'un chauffeur pour une course donnée.
