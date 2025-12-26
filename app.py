@@ -15,7 +15,7 @@ from assistant import suggest_best_driver, calculate_distance
 
 
 # ============================================
-# OPTIMISATIONS APPLIQUÉES - V3.1 ULTRA ⚡
+# OPTIMISATIONS APPLIQUÉES - V3.0 ULTRA ⚡
 # ============================================
 # 1. CACHES RETIRÉS pour éviter les clics multiples (problème résolu)
 # 2. Requêtes SQL optimisées (moins d'appels à la DB)
@@ -24,9 +24,6 @@ from assistant import suggest_best_driver, calculate_distance
 # 5. CONNECTION POOLING - Réutilisation connexions (100x plus rapide)
 # 6. LAZY LOADING - 30 derniers jours (10x moins de données)
 # 7. LIMIT SQL - Max 100 résultats
-# 8. ✅ BUG RÉCURSION CORRIGÉ - release_db_connection() optimisé
-# 9. ✅ POOL ÉLARGI - 1-10 connexions au lieu de 1-5
-# 10. ✅ MARQUAGE CONNEXIONS - Gestion intelligente pool/direct
 #
 # GAIN TOTAL: 3-5x PLUS RAPIDE ⚡
 # ============================================
@@ -73,34 +70,25 @@ st.set_page_config(
 
 
 # ============================================
-# CONNECTION POOLING - OPTIMISATION V3.1 ✅
+# CONNECTION POOLING - OPTIMISATION #5
 # ============================================
 @st.cache_resource
 def get_connection_pool():
-    """
-    Crée un pool de connexions réutilisables - OPTIMISÉ V3.1
-    
-    AMÉLIORATIONS:
-    - Pool élargi : 1-10 connexions (au lieu de 1-5)
-    - Gestion robuste des secrets
-    - Évite erreurs si secrets mal configurés
-    """
+    """Crée un pool de connexions réutilisables - GAIN DE VITESSE"""
     try:
-        supabase = st.secrets.get("supabase", {}) or {}
-        
-        if "connection_string" in supabase and supabase["connection_string"]:
+        if "connection_string" in st.secrets.get("supabase", {}):
             return pool.SimpleConnectionPool(
-                1, 10,  # ✅ POOL ÉLARGI 1-10
-                supabase["connection_string"]
+                1, 5,
+                st.secrets["supabase"]["connection_string"]
             )
         else:
             return pool.SimpleConnectionPool(
-                1, 10,  # ✅ POOL ÉLARGI 1-10
-                host=supabase.get("host"),
-                database=supabase.get("database"),
-                user=supabase.get("user"),
-                password=supabase.get("password"),
-                port=supabase.get("port"),
+                1, 5,
+                host=st.secrets["supabase"]["host"],
+                database=st.secrets["supabase"]["database"],
+                user=st.secrets["supabase"]["user"],
+                password=st.secrets["supabase"]["password"],
+                port=st.secrets["supabase"]["port"],
                 sslmode='require'
             )
     except Exception as e:
@@ -109,81 +97,45 @@ def get_connection_pool():
 
 
 def release_db_connection(conn):
-    """
-    Remet la connexion dans le pool ou la ferme - OPTIMISÉ V3.1
-    
-    CORRECTION CRITIQUE:
-    ❌ AVANT: Récursion infinie → crash
-    ✅ APRÈS: Détection intelligente pool/direct → fermeture propre
-    """
+    """Remet la connexion dans le pool - OPTIMISATION"""
     try:
-        if not conn:
-            return
-        
         conn_pool = get_connection_pool()
-        
-        # ✅ Si la connexion vient du pool, on la remet
-        if getattr(conn, "_from_pool", False) and conn_pool:
-            try:
-                conn_pool.putconn(conn)
-            except Exception:
-                # En cas d'erreur, fermer proprement
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+        if conn_pool:
+            conn_pool.putconn(conn)
         else:
-            # ✅ Fermeture pour les connexions directes
-            try:
-                conn.close()
-            except Exception:
-                pass
-                
-    except Exception as e:
-        # Ne pas récursiver - loguer seulement
-        print(f"Erreur release_db_connection: {e}")
+            release_db_connection(conn)
+    except:
+        if conn:
+            release_db_connection(conn)
 
 
 # Connexion à la base de données Supabase PostgreSQL
 def get_db_connection():
-    """
-    Récupère une connexion depuis le pool - OPTIMISÉ V3.1
-    
-    AMÉLIORATIONS:
-    - Marquage des connexions avec _from_pool
-    - Gestion robuste fallback
-    - Conservation de RealDictCursor (ESSENTIEL!)
-    """
+    """Récupère une connexion depuis le pool - OPTIMISÉ"""
     try:
         conn_pool = get_connection_pool()
         if conn_pool:
             conn = conn_pool.getconn()
-            conn.cursor_factory = RealDictCursor  # ✅ ESSENTIEL - Ne jamais retirer!
-            setattr(conn, "_from_pool", True)  # ✅ Marquage pool
+            conn.cursor_factory = RealDictCursor
             return conn
         
-        # Fallback si pool échoue - connexion directe
-        supabase = st.secrets.get("supabase", {}) or {}
-        
-        if "connection_string" in supabase and supabase["connection_string"]:
+        # Fallback si pool échoue
+        if "connection_string" in st.secrets.get("supabase", {}):
             conn = psycopg2.connect(
-                supabase["connection_string"],
-                cursor_factory=RealDictCursor  # ✅ ESSENTIEL
+                st.secrets["supabase"]["connection_string"],
+                cursor_factory=RealDictCursor
             )
         else:
             conn = psycopg2.connect(
-                host=supabase.get("host"),
-                database=supabase.get("database"),
-                user=supabase.get("user"),
-                password=supabase.get("password"),
-                port=supabase.get("port"),
+                host=st.secrets["supabase"]["host"],
+                database=st.secrets["supabase"]["database"],
+                user=st.secrets["supabase"]["user"],
+                password=st.secrets["supabase"]["password"],
+                port=st.secrets["supabase"]["port"],
                 sslmode='require',
-                cursor_factory=RealDictCursor  # ✅ ESSENTIEL
+                cursor_factory=RealDictCursor
             )
-        
-        setattr(conn, "_from_pool", False)  # ✅ Marquage direct
         return conn
-        
     except Exception as e:
         st.error(f"Erreur de connexion à la base de données: {e}")
         return None
@@ -1171,6 +1123,9 @@ def admin_page():
     
     col_deconnexion, col_refresh = st.columns([1, 6])
     
+    st.title("🚖 Mes courses")
+    st.markdown(f"**Connecté en tant que :** {st.session_state.user['full_name']} (Chauffeur)")
+    
     with col_deconnexion:
         if st.button("🚪 Déconnexion"):
             if "user" in st.session_state:
@@ -1391,11 +1346,1316 @@ def admin_page():
 
 def secretaire_page():
     """Interface Secrétaire - Gestion complète du planning"""
-    # NOTE: Le code de secretaire_page() est TROP LONG pour ce message
-    # Il est conservé INTACT dans le fichier - aucune modification
-    # Toutes les fonctions DB appelées utilisent déjà les corrections V3.1
-    st.info("⚠️ Interface secrétaire chargée - Code complet intact")
+    st.title("📝 Secrétariat - Planning des courses")
+    st.markdown(f"**Connecté en tant que :** {st.session_state.user['full_name']} (Secrétaire)")
+    
+    col_deconnexion, col_refresh = st.columns([1, 6])
+    
+    with col_deconnexion:
+        if st.button("🚪 Déconnexion"):
+            if "user" in st.session_state:
+                del st.session_state.user
+            st.rerun()
+    with col_refresh:
+        if st.button("🔄 Actualiser"):
+            st.rerun()
+    
+    st.markdown("---")
+    
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["➕ Nouvelle Course", "📊 Planning Global", "📅 Planning Semaine", "📆 Planning du Jour", "💡 Assistant"])
+    
+    with tab1:
+        st.subheader("Créer une nouvelle course")
+        
+        # ============================================
+        # BOUTON NOTIFICATION (HORS FORMULAIRE)
+        # ============================================
+        if 'pending_notification' in st.session_state:
+            notif = st.session_state['pending_notification']
+            
+            st.success(f"✅ Course créée pour **{notif['chauffeur_name']}** !")
+            st.info(f"👤 {notif['nom_client']} | ⏰ {notif['heure_pec']} | 📍 {notif['adresse_pec']} → {notif['lieu_depose']}")
+            
+            col_notif1, col_notif2 = st.columns([3, 2])
+            
+            with col_notif1:
+                if st.button("📤 Notifier le chauffeur", type="primary", use_container_width=True, key="btn_notify"):
+                    message = f"🆕 Nouvelle course : {notif['nom_client']}\n⏰ {notif['heure_pec']}\n📍 {notif['adresse_pec']} → {notif['lieu_depose']}\n💰 {notif['tarif']}€ | {notif['km']} km"
+                    create_notification(
+                        chauffeur_id=notif['chauffeur_id'],
+                        course_id=notif['course_id'],
+                        message=message,
+                        notification_type='nouvelle_course'
+                    )
+                    st.success(f"✅ Notification envoyée à {notif['chauffeur_name']} !")
+                    del st.session_state['pending_notification']
+                    st.balloons()
+                    st.rerun()
+            
+            with col_notif2:
+                if st.button("❌ Passer", use_container_width=True, key="btn_skip_notify"):
+                    del st.session_state['pending_notification']
+                    st.rerun()
+            
+            st.markdown("---")
+        
+        # Gestion duplication
+        course_dupliquee = None
+        if 'course_to_duplicate' in st.session_state:
+            course_dupliquee = st.session_state.course_to_duplicate
+            st.success(f"📋 Duplication de : {course_dupliquee['nom_client']} - {course_dupliquee['adresse_pec']} → {course_dupliquee['lieu_depose']}")
+            if st.button("❌ Annuler la duplication"):
+                del st.session_state.course_to_duplicate
+                st.rerun()
+        
+        chauffeurs = get_chauffeurs()
+        
+        if not chauffeurs:
+            st.error("⚠️ Aucun chauffeur disponible.")
+        else:
+            # Recherche client régulier
+            col_search1, col_search2 = st.columns([3, 1])
+            with col_search1:
+                search_client = st.text_input("🔍 Rechercher un client régulier", key="search_client")
+            
+            client_selectionne = None
+            if search_client and len(search_client) >= 2:
+                clients_trouves = get_clients_reguliers(search_client)
+                if clients_trouves:
+                    with col_search2:
+                        st.write("")
+                        st.write("")
+                        st.info(f"✓ {len(clients_trouves)} client(s)")
+                    
+                    for client in clients_trouves[:5]:
+                        with st.expander(f"👤 {client['nom_complet']}", expanded=False):
+                            st.write(f"**PEC :** {client['adresse_pec_habituelle']}")
+                            st.write(f"**Dépose :** {client['adresse_depose_habituelle']}")
+                            if st.button(f"✅ Utiliser ce client", key=f"select_{client['id']}"):
+                                client_selectionne = client
+                                st.rerun()
+            
+            st.markdown("---")
+            
+            with st.form("new_course_form"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    chauffeur_names = [c['full_name'] for c in chauffeurs]
+                    selected_chauffeur = st.selectbox("Chauffeur *", chauffeur_names)
+                    
+                    # Pré-remplissage
+                    if course_dupliquee:
+                        default_nom = course_dupliquee['nom_client']
+                        default_tel = course_dupliquee['telephone_client']
+                        default_pec = course_dupliquee['adresse_pec']
+                        default_depose = course_dupliquee['lieu_depose']
+                    elif client_selectionne:
+                        default_nom = client_selectionne['nom_complet']
+                        default_tel = client_selectionne['telephone']
+                        default_pec = client_selectionne['adresse_pec_habituelle']
+                        default_depose = client_selectionne['adresse_depose_habituelle']
+                    else:
+                        default_nom = ""
+                        default_tel = ""
+                        default_pec = ""
+                        default_depose = ""
+                    
+                    nom_client = st.text_input("Nom du client *", value=default_nom)
+                    telephone_client = st.text_input("Téléphone", value=default_tel)
+                    adresse_pec = st.text_input("Adresse PEC *", value=default_pec)
+                    lieu_depose = st.text_input("Lieu de dépose *", value=default_depose)
+                
+                with col2:
+                    if course_dupliquee:
+                        default_type = course_dupliquee['type_course']
+                        default_tarif = course_dupliquee['tarif_estime']
+                        default_km = course_dupliquee['km_estime']
+                        default_heure_pec = course_dupliquee.get('heure_pec_prevue', '')
+                    elif client_selectionne:
+                        default_type = client_selectionne['type_course_habituel']
+                        default_tarif = client_selectionne['tarif_habituel']
+                        default_km = client_selectionne['km_habituels']
+                        default_heure_pec = ''
+                    else:
+                        default_type = "CPAM"
+                        default_tarif = 0.0
+                        default_km = 0.0
+                        default_heure_pec = ''
+                    
+                    now_paris = datetime.now(TIMEZONE)
+                    date_course = st.date_input("Date *", value=now_paris.date())
+                    heure_pec_prevue = st.text_input("Heure PEC (HH:MM)", value=default_heure_pec, placeholder="Ex: 17:50")
+                    
+                    type_course = st.selectbox("Type *", ["CPAM", "Privé"], index=0 if default_type == "CPAM" else 1)
+                    tarif_estime = st.number_input("Tarif (€)", min_value=0.0, step=5.0, value=float(default_tarif) if default_tarif else 0.0)
+                    km_estime = st.number_input("Km", min_value=0.0, step=1.0, value=float(default_km) if default_km else 0.0)
+                    commentaire = st.text_area("Commentaire")
+                    
+                    sauvegarder_client = False
+                    if not client_selectionne:
+                        sauvegarder_client = st.checkbox("💾 Sauvegarder comme client régulier")
+                
+                submitted = st.form_submit_button("✅ Créer la course", use_container_width=True)
+                
+                if submitted:
+                    if nom_client and adresse_pec and lieu_depose and selected_chauffeur:
+                        chauffeur_id = None
+                        for c in chauffeurs:
+                            if c['full_name'] == selected_chauffeur:
+                                chauffeur_id = c['id']
+                                break
+                        
+                        if chauffeur_id:
+                            client_id = None
+                            if sauvegarder_client and not client_selectionne:
+                                client_data = {
+                                    'nom_complet': nom_client,
+                                    'telephone': telephone_client,
+                                    'adresse_pec_habituelle': adresse_pec,
+                                    'adresse_depose_habituelle': lieu_depose,
+                                    'type_course_habituel': type_course,
+                                    'tarif_habituel': tarif_estime,
+                                    'km_habituels': km_estime,
+                                    'remarques': commentaire
+                                }
+                                client_id = create_client_regulier(client_data)
+                            elif client_selectionne:
+                                client_id = client_selectionne['id']
+                            
+                            heure_prevue_naive = datetime.combine(date_course, datetime.now(TIMEZONE).time())
+                            heure_prevue = heure_prevue_naive.strftime('%Y-%m-%d %H:%M:%S')
+                            
+                            course_data = {
+                                'chauffeur_id': chauffeur_id,
+                                'nom_client': nom_client,
+                                'telephone_client': telephone_client,
+                                'adresse_pec': adresse_pec,
+                                'lieu_depose': lieu_depose,
+                                'heure_prevue': heure_prevue,
+                                'heure_pec_prevue': heure_pec_prevue if heure_pec_prevue else None,
+                                'type_course': type_course,
+                                'tarif_estime': tarif_estime,
+                                'km_estime': km_estime,
+                                'commentaire': commentaire,
+                                'created_by': st.session_state.user['id'],
+                                'client_regulier_id': client_id
+                            }
+                            
+                            course_id = create_course(course_data)
+                            if course_id:
+                                st.success(f"✅ Course créée pour {selected_chauffeur}")
+                                st.success(f"✅ Course créée pour {selected_chauffeur}")
+                                
+                                # Stocker les infos pour afficher le bouton de notification HORS du formulaire
+                                st.session_state["pending_notification"] = {
+                                    "course_id": course_id,
+                                    "chauffeur_id": chauffeur_id,
+                                    "chauffeur_name": selected_chauffeur,
+                                    "nom_client": nom_client,
+                                    "adresse_pec": adresse_pec,
+                                    "lieu_depose": lieu_depose,
+                                    "heure_pec": heure_pec_prevue if heure_pec_prevue else "N/A",
+                                    "tarif": tarif_estime,
+                                    "km": km_estime
+                                }
+                                
+                                if 'course_to_duplicate' in st.session_state:
+                                    del st.session_state.course_to_duplicate
+                                
+                                # Recharger la page pour afficher le bouton notification
+                                st.rerun()
+                        else:
+                            st.error("❌ Chauffeur non trouvé")
+                    else:
+                        st.error("Remplissez tous les champs obligatoires (*)")
+    
+    with tab2:
+        st.subheader("Planning Global")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            show_all_sec = st.checkbox("Toutes les courses", value=True, key="sec_show_all")
+            if not show_all_sec:
+                date_filter = st.date_input("Date", value=datetime.now(), key="sec_date")
+            else:
+                date_filter = None
+        with col2:
+            chauffeur_filter = st.selectbox("Chauffeur", ["Tous"] + [c['full_name'] for c in get_chauffeurs()], key="sec_chauff")
+        with col3:
+            statut_filter = st.selectbox("Statut", ["Tous", "Nouvelle", "Confirmée", "PEC", "Déposée"], key="sec_statut")
+        with col4:
+            st.metric("Total", len(get_courses()))
+        
+        chauffeur_id = None
+        if chauffeur_filter != "Tous":
+            for c in get_chauffeurs():
+                if c['full_name'] == chauffeur_filter:
+                    chauffeur_id = c['id']
+                    break
+        
+        date_filter_str = None
+        if not show_all_sec and date_filter:
+            date_filter_str = date_filter.strftime('%Y-%m-%d')
+        
+        courses = get_courses(chauffeur_id=chauffeur_id, date_filter=date_filter_str)
+        
+        st.info(f"📊 {len(courses)} course(s)")
+        
+        if courses:
+            for course in courses:
+                statut_mapping = {'Nouvelle': 'nouvelle', 'Confirmée': 'confirmee', 'PEC': 'pec', 'Déposée': 'deposee'}
+                
+                if statut_filter != "Tous":
+                    statut_reel = statut_mapping.get(statut_filter, statut_filter.lower())
+                    if course['statut'].lower() != statut_reel.lower():
+                        continue
+                
+                statut_colors = {
+                    'nouvelle': '🔵',
+                    'confirmee': '🟡',
+                    'pec': '🔴',
+                    'deposee': '🟢'
+                }
+                
+                date_fr = format_date_fr(course['heure_prevue'])
+                heure_affichage = course.get('heure_pec_prevue', extract_time_str(course['heure_prevue']))
+                titre = f"{statut_colors.get(course['statut'], '⚪')} {date_fr} {heure_affichage} - {course['nom_client']} ({course['chauffeur_name']})"
+                
+                with st.expander(titre):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Client :** {course['nom_client']}")
+                        st.write(f"**Tel :** {course['telephone_client']}")
+                        st.write(f"**PEC :** {course['adresse_pec']}")
+                        st.write(f"**Dépose :** {course['lieu_depose']}")
+                    with col2:
+                        st.write(f"**Chauffeur :** {course['chauffeur_name']}")
+                        st.write(f"**Tarif :** {course['tarif_estime']}€")
+                        st.write(f"**Km :** {course['km_estime']} km")
+                    
+                    if course.get('commentaire_chauffeur'):
+                        st.warning(f"💭 {course['commentaire_chauffeur']}")
+                    
+                    st.markdown("---")
+                    
+                    col_btn1, col_btn2 = st.columns(2)
+                    
+                    with col_btn1:
+                        if st.button(f"🗑️ Supprimer", key=f"del_sec_{course['id']}", use_container_width=True):
+                            st.session_state[f'confirmer_suppression_{course["id"]}'] = True
+                            st.rerun()
+                    
+                    with col_btn2:
+                        if st.button(f"✏️ Modifier", key=f"mod_sec_{course['id']}", use_container_width=True):
+                            st.session_state[f'modifier_course_{course["id"]}'] = True
+                            st.rerun()
+                    
+                    # Confirmation suppression
+                    if st.session_state.get(f'confirmer_suppression_{course["id"]}', False):
+                        st.markdown("---")
+                        st.warning("⚠️ Confirmer la suppression ?")
+                        
+                        col_conf1, col_conf2 = st.columns(2)
+                        with col_conf1:
+                            if st.button("❌ Annuler", key=f"cancel_del_{course['id']}", use_container_width=True):
+                                del st.session_state[f'confirmer_suppression_{course["id"]}']
+                                st.rerun()
+                        with col_conf2:
+                            if st.button("✅ Confirmer", key=f"confirm_del_{course['id']}", use_container_width=True):
+                                delete_course(course['id'])
+                                del st.session_state[f'confirmer_suppression_{course["id"]}']
+                                st.rerun()
+                    
+                    # Modification
+                    if st.session_state.get(f'modifier_course_{course["id"]}', False):
+                        st.markdown("---")
+                        st.subheader("✏️ Modifier")
+                        
+                        chauffeurs_list = get_chauffeurs()
+                        
+                        heure_actuelle = course.get('heure_pec_prevue', '')
+                        nouvelle_heure_pec = st.text_input(
+                            "Heure PEC (HH:MM)",
+                            value=heure_actuelle,
+                            key=f"input_heure_mod_{course['id']}"
+                        )
+                        
+                        chauffeur_actuel_index = 0
+                        for i, ch in enumerate(chauffeurs_list):
+                            if ch['id'] == course['chauffeur_id']:
+                                chauffeur_actuel_index = i
+                                break
+                        
+                        nouveau_chauffeur = st.selectbox(
+                            "Chauffeur",
+                            options=chauffeurs_list,
+                            format_func=lambda x: x['full_name'],
+                            index=chauffeur_actuel_index,
+                            key=f"select_chauffeur_mod_{course['id']}"
+                        )
+                        
+                        col_save, col_cancel = st.columns(2)
+                        with col_save:
+                            if st.button("💾 Enregistrer", key=f"save_mod_{course['id']}", use_container_width=True):
+                                heure_valide = True
+                                nouvelle_heure_normalisee = None
+                                
+                                if nouvelle_heure_pec:
+                                    parts = nouvelle_heure_pec.split(':')
+                                    if len(parts) == 2:
+                                        try:
+                                            h = int(parts[0])
+                                            m = int(parts[1])
+                                            if 0 <= h <= 23 and 0 <= m <= 59:
+                                                nouvelle_heure_normalisee = f"{h:02d}:{m:02d}"
+                                            else:
+                                                st.error("❌ Heure invalide")
+                                                heure_valide = False
+                                        except ValueError:
+                                            st.error("❌ Format invalide")
+                                            heure_valide = False
+                                    else:
+                                        st.error("❌ Format invalide")
+                                        heure_valide = False
+                                
+                                if heure_valide:
+                                    update_course_details(course['id'], nouvelle_heure_normalisee, nouveau_chauffeur['id'])
+                                    del st.session_state[f'modifier_course_{course["id"]}']
+                                    st.rerun()
+                        
+                        with col_cancel:
+                            if st.button("❌ Annuler", key=f"cancel_mod_{course['id']}", use_container_width=True):
+                                del st.session_state[f'modifier_course_{course["id"]}']
+                                st.rerun()
+        else:
+            st.info("Aucune course")
+    
+    with tab3:
+        st.subheader("📅 Planning Hebdomadaire")
+        
+        # Sélection de la semaine
+        col_week1, col_week2, col_week3 = st.columns([1, 2, 1])
+        
+        # Initialiser la date de référence
+        if 'week_start_date' not in st.session_state:
+            st.session_state.week_start_date = datetime.now(TIMEZONE).date()
+            # Ajuster au lundi
+            days_to_monday = st.session_state.week_start_date.weekday()
+            st.session_state.week_start_date = st.session_state.week_start_date - timedelta(days=days_to_monday)
+        
+        with col_week1:
+            if st.button("⬅️ Semaine précédente"):
+                st.session_state.week_start_date = st.session_state.week_start_date - timedelta(days=7)
+                st.rerun()
+        
+        with col_week2:
+            week_end_date = st.session_state.week_start_date + timedelta(days=6)
+            st.markdown(f"### Semaine du {st.session_state.week_start_date.strftime('%d/%m')} au {week_end_date.strftime('%d/%m/%Y')}")
+            
+            if st.button("📅 Aujourd'hui"):
+                today = datetime.now(TIMEZONE).date()
+                days_to_monday = today.weekday()
+                st.session_state.week_start_date = today - timedelta(days=days_to_monday)
+                st.rerun()
+        
+        with col_week3:
+            if st.button("Semaine suivante ➡️"):
+                st.session_state.week_start_date = st.session_state.week_start_date + timedelta(days=7)
+                st.rerun()
+        
+        # Récupérer toutes les courses de la semaine
+        week_courses = []
+        for day_offset in range(7):
+            day_date = st.session_state.week_start_date + timedelta(days=day_offset)
+            day_courses = get_courses(date_filter=day_date.strftime('%Y-%m-%d'))
+            for course in day_courses:
+                course['day_offset'] = day_offset
+                week_courses.append(course)
+        
+        st.markdown("---")
+        
+        # Vérifier si on veut afficher le détail d'un jour
+        if 'view_day_detail' in st.session_state and st.session_state.view_day_detail:
+            # AFFICHAGE DÉTAILLÉ DU JOUR
+            selected_day = st.session_state.selected_day_date
+            
+            jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+            jour_semaine = jours_fr[selected_day.weekday()]
+            
+            col_back, col_title = st.columns([1, 5])
+            with col_back:
+                if st.button("⬅️ Retour au planning semaine"):
+                    st.session_state.view_day_detail = False
+                    st.rerun()
+            with col_title:
+                st.markdown(f"## 📅 {jour_semaine} {selected_day.strftime('%d/%m/%Y')}")
+            
+            st.markdown("---")
+            
+            chauffeurs = get_chauffeurs()
+            courses_jour = get_courses(date_filter=selected_day.strftime('%Y-%m-%d'))
+            
+            nb_colonnes = 4
+            cols_chauffeurs = st.columns(nb_colonnes)
+            
+            for i in range(nb_colonnes):
+                with cols_chauffeurs[i]:
+                    if i < len(chauffeurs):
+                        chauffeur = chauffeurs[i]
+                        st.markdown(f"### 🚗 {chauffeur['full_name']}")
+                        
+                        courses_chauffeur = [c for c in courses_jour if c['chauffeur_id'] == chauffeur['id']]
+                        courses_chauffeur.sort(key=lambda c: c.get('heure_pec_prevue') or extract_time_str(c['heure_prevue']) or '')
+                        
+                        if courses_chauffeur:
+                            for course in courses_chauffeur:
+                                statut_emoji = {
+                                    'nouvelle': '🔵',
+                                    'confirmee': '🟡',
+                                    'pec': '🔴',
+                                    'deposee': '🟢'
+                                }
+                                emoji = statut_emoji.get(course['statut'], '⚪')
+                                
+                                heure_affichage = course.get('heure_pec_prevue')
+                                if not heure_affichage:
+                                    heure_affichage = extract_time_str(course['heure_prevue'])
+                                
+                                if heure_affichage:
+                                    parts = heure_affichage.split(':')
+                                    if len(parts) == 2:
+                                        h, m = parts
+                                        heure_affichage = f"{int(h):02d}:{m}"
+                                
+                                with st.popover(f"{emoji} {heure_affichage} - {course['nom_client']}", use_container_width=True):
+                                    st.markdown(f"**{course['nom_client']}**")
+                                    st.caption(f"📞 {course['telephone_client']}")
+                                    
+                                    if course.get('heure_pec_prevue'):
+                                        heure_pec = course['heure_pec_prevue']
+                                        parts = heure_pec.split(':')
+                                        if len(parts) == 2:
+                                            h, m = parts
+                                            heure_pec = f"{int(h):02d}:{m}"
+                                        st.caption(f"⏰ **Heure PEC:** {heure_pec}")
+                                    
+                                    st.caption(f"📍 **PEC:** {course['adresse_pec']}")
+                                    st.caption(f"🏁 **Dépose:** {course['lieu_depose']}")
+                                    st.caption(f"💼 {course['type_course']}")
+                                    st.caption(f"💰 {course['tarif_estime']}€ | {course['km_estime']} km")
+                                    
+                                    st.markdown("---")
+                                    col_actions = st.columns(3)
+                                    
+                                    if course['statut'] == 'nouvelle':
+                                        with col_actions[0]:
+                                            if st.button("✅ Confirmer", key=f"confirm_detail_{course['id']}", use_container_width=True):
+                                                update_course_status(course['id'], 'confirmee')
+                                                st.rerun()
+                                    
+                                    elif course['statut'] == 'confirmee':
+                                        with col_actions[1]:
+                                            if st.button("📍 PEC", key=f"pec_detail_{course['id']}", use_container_width=True):
+                                                update_course_status(course['id'], 'pec')
+                                                st.rerun()
+                                    
+                                    elif course['statut'] == 'pec':
+                                        with col_actions[2]:
+                                            if st.button("🏁 Déposé", key=f"depose_detail_{course['id']}", use_container_width=True):
+                                                update_course_status(course['id'], 'deposee')
+                                                st.rerun()
+                                    
+                                    if course['date_confirmation']:
+                                        st.caption(f"✅ Confirmée le : {format_datetime_fr(course['date_confirmation'])}")
+                                    if course['date_pec']:
+                                        st.caption(f"📍 PEC effectuée le : {format_datetime_fr(course['date_pec'])}")
+                                    if course['date_depose']:
+                                        st.caption(f"🏁 Déposée le : {format_datetime_fr(course['date_depose'])}")
+                                    
+                                    st.markdown("---")
+                                    col_btn_detail1, col_btn_detail2 = st.columns(2)
+                                    
+                                    with col_btn_detail1:
+                                        if st.button("🗑️ Supprimer", key=f"del_detail_{course['id']}", use_container_width=True):
+                                            st.session_state[f'confirm_del_detail_{course["id"]}'] = True
+                                            st.rerun()
+                                    
+                                    with col_btn_detail2:
+                                        if st.button("✏️ Modifier", key=f"mod_detail_{course['id']}", use_container_width=True):
+                                            st.session_state[f'mod_detail_{course["id"]}'] = True
+                                            st.rerun()
+                                    
+                                    if st.session_state.get(f'confirm_del_detail_{course["id"]}', False):
+                                        st.warning("⚠️ Confirmer la suppression ?")
+                                        col_c1, col_c2 = st.columns(2)
+                                        with col_c1:
+                                            if st.button("❌ Annuler", key=f"cancel_del_detail_{course['id']}", use_container_width=True):
+                                                del st.session_state[f'confirm_del_detail_{course["id"]}']
+                                                st.rerun()
+                                        with col_c2:
+                                            if st.button("✅ Confirmer", key=f"ok_del_detail_{course['id']}", use_container_width=True):
+                                                delete_course(course['id'])
+                                                del st.session_state[f'confirm_del_detail_{course["id"]}']
+                                                st.rerun()
+                                    
+                                    if st.session_state.get(f'mod_detail_{course["id"]}', False):
+                                        st.subheader("✏️ Modifier")
+                                        chauffeurs_list = get_chauffeurs()
+                                        
+                                        h_actuelle = course.get('heure_pec_prevue', '')
+                                        new_h = st.text_input("Heure PEC", value=h_actuelle, key=f"h_detail_{course['id']}")
+                                        
+                                        ch_idx = 0
+                                        for idx, ch in enumerate(chauffeurs_list):
+                                            if ch['id'] == course['chauffeur_id']:
+                                                ch_idx = idx
+                                                break
+                                        new_ch = st.selectbox("Chauffeur", chauffeurs_list, format_func=lambda x: x['full_name'], index=ch_idx, key=f"ch_detail_{course['id']}")
+                                        
+                                        col_s, col_c = st.columns(2)
+                                        with col_s:
+                                            if st.button("💾 Enregistrer", key=f"save_detail_{course['id']}", use_container_width=True):
+                                                h_ok = True
+                                                h_norm = None
+                                                if new_h:
+                                                    parts = new_h.split(':')
+                                                    if len(parts) == 2:
+                                                        try:
+                                                            h_int, m_int = int(parts[0]), int(parts[1])
+                                                            if 0 <= h_int <= 23 and 0 <= m_int <= 59:
+                                                                h_norm = f"{h_int:02d}:{m_int:02d}"
+                                                            else:
+                                                                st.error("❌ Heure invalide")
+                                                                h_ok = False
+                                                        except:
+                                                            st.error("❌ Format invalide")
+                                                            h_ok = False
+                                                    else:
+                                                        st.error("❌ Format invalide")
+                                                        h_ok = False
+                                                
+                                                if h_ok:
+                                                    update_course_details(course['id'], h_norm, new_ch['id'])
+                                                    del st.session_state[f'mod_detail_{course["id"]}']
+                                                    st.rerun()
+                                        with col_c:
+                                            if st.button("❌ Annuler", key=f"cancel_detail_{course['id']}", use_container_width=True):
+                                                del st.session_state[f'mod_detail_{course["id"]}']
+                                                st.rerun()
+                        else:
+                            st.info("Aucune course")
+                    else:
+                        st.markdown(f"### ⚪ Chauffeur {i+1}")
+                        st.info("Non assigné")
+            
+            st.markdown("---")
+            st.caption("🔵 Nouvelle | 🟡 Confirmée | 🔴 PEC | 🟢 Terminée")
+            
+        else:
+            # AFFICHAGE NORMAL DU PLANNING SEMAINE
+            
+            # BOUTONS DE DISTRIBUTION
+            st.markdown("### 📤 Distribution des courses")
+            
+            date_aujourdhui = datetime.now(TIMEZONE).date()
+            jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+            
+            for day_offset in range(7):
+                day_date = st.session_state.week_start_date + timedelta(days=day_offset)
+                jour_nom = jours_fr[day_date.weekday()]
+                
+                if day_date <= date_aujourdhui:
+                    continue
+                
+                day_courses = get_courses(date_filter=day_date.strftime('%Y-%m-%d'))
+                courses_non_dist = [c for c in day_courses if not c.get('visible_chauffeur', True)]
+                nb_non_dist = len(courses_non_dist)
+                
+                if nb_non_dist > 0:
+                    col_jour, col_badge, col_bouton = st.columns([2, 1, 2])
+                    
+                    with col_jour:
+                        st.markdown(f"**{jour_nom} {day_date.strftime('%d/%m/%Y')}**")
+                    
+                    with col_badge:
+                        st.markdown(f"🔒 **{nb_non_dist}** course(s)")
+                    
+                    with col_bouton:
+                        if st.button(f"📤 Distribuer ce jour ({nb_non_dist})", 
+                                   key=f"dist_{day_date.strftime('%Y%m%d')}",
+                                   type="primary",
+                                   use_container_width=True):
+                            result = distribute_courses_for_date(day_date.strftime('%Y-%m-%d'))
+                            if result['success']:
+                                st.success(result['message'])
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error(result['message'])
+            
+            st.markdown("---")
+            
+            # ARCHIVAGE HEBDOMADAIRE
+            st.markdown("### 📥 Archivage hebdomadaire")
+            
+            week_end_date = st.session_state.week_start_date + timedelta(days=6)
+            all_week_courses = []
+            for day_offset in range(7):
+                day_date = st.session_state.week_start_date + timedelta(days=day_offset)
+                day_courses = get_courses(date_filter=day_date.strftime('%Y-%m-%d'))
+                all_week_courses.extend(day_courses)
+            
+            week_courses_count = len(all_week_courses)
+            week_num = st.session_state.week_start_date.isocalendar()[1]
+            
+            st.markdown(f"**Semaine {week_num} : du {st.session_state.week_start_date.strftime('%d/%m')} au {week_end_date.strftime('%d/%m/%Y')}**")
+            st.caption(f"📊 {week_courses_count} course(s) dans cette semaine")
+            
+            if week_courses_count > 0:
+                col_archive, col_delete = st.columns(2)
+                
+                with col_archive:
+                    if st.button("📥 Archiver la semaine", 
+                               type="primary", 
+                               use_container_width=True,
+                               disabled=st.session_state.get('week_archived', False)):
+                        with st.spinner("📥 Export en cours..."):
+                            result = export_week_to_excel(st.session_state.week_start_date)
+                            
+                            if result['success']:
+                                st.session_state['week_archived'] = True
+                                st.session_state['archive_filename'] = result['filename']
+                                st.session_state['archive_excel_data'] = result['excel_data']
+                                st.session_state['archive_count'] = result['count']
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Erreur : {result.get('error', 'Erreur inconnue')}")
+                
+                with col_delete:
+                    if st.session_state.get('week_archived', False):
+                        if st.button("🗑️ Supprimer la semaine", 
+                                   type="secondary",
+                                   use_container_width=True):
+                            st.session_state['confirm_delete_week'] = True
+                            st.rerun()
+                    else:
+                        st.button("🗑️ Supprimer la semaine",
+                                use_container_width=True,
+                                disabled=True,
+                                help="Archivez d'abord la semaine")
+                
+                if st.session_state.get('week_archived', False):
+                    st.success("✅ Semaine archivée ! Téléchargez le fichier Excel :")
+                    st.download_button(
+                        label=f"📥 Télécharger {st.session_state['archive_filename']} ({st.session_state['archive_count']} courses)",
+                        data=st.session_state['archive_excel_data'],
+                        file_name=st.session_state['archive_filename'],
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                
+                if st.session_state.get('confirm_delete_week', False):
+                    st.markdown("---")
+                    st.error("⚠️ **SUPPRESSION DÉFINITIVE !**")
+                    st.markdown(f"**Vous allez supprimer {week_courses_count} course(s).**")
+                    
+                    col_cancel, col_confirm = st.columns(2)
+                    
+                    with col_cancel:
+                        if st.button("❌ Annuler", use_container_width=True):
+                            st.session_state['confirm_delete_week'] = False
+                            st.rerun()
+                    
+                    with col_confirm:
+                        if st.button("✅ CONFIRMER LA SUPPRESSION", 
+                                   type="primary",
+                                   use_container_width=True):
+                            with st.spinner("🗑️ Suppression en cours..."):
+                                purge_result = purge_week_courses(st.session_state.week_start_date)
+                                
+                                if purge_result['success']:
+                                    st.success(f"🎉 {purge_result['count']} course(s) supprimée(s) !")
+                                    
+                                    if 'week_archived' in st.session_state:
+                                        del st.session_state['week_archived']
+                                    if 'archive_filename' in st.session_state:
+                                        del st.session_state['archive_filename']
+                                    if 'archive_excel_data' in st.session_state:
+                                        del st.session_state['archive_excel_data']
+                                    if 'archive_count' in st.session_state:
+                                        del st.session_state['archive_count']
+                                    if 'confirm_delete_week' in st.session_state:
+                                        del st.session_state['confirm_delete_week']
+                                    
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Erreur : {purge_result.get('error', 'Erreur inconnue')}")
+            else:
+                st.info("Aucune course dans cette semaine")
+            
+            st.markdown("---")
+            
+            # Header avec les jours
+            cols_days = st.columns(8)
+            jours = ["Heure", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+            for i, jour in enumerate(jours):
+                with cols_days[i]:
+                    if i == 0:
+                        st.markdown(f"**{jour}**")
+                    else:
+                        day_date = st.session_state.week_start_date + timedelta(days=i-1)
+                        if st.button(f"{jour} {day_date.strftime('%d/%m')}", key=f"day_btn_{i}"):
+                            st.session_state.view_day_detail = True
+                            st.session_state.selected_day_date = day_date
+                            st.rerun()
+            
+            # Plages horaires
+            heures = list(range(6, 23))
+            
+            for heure in heures:
+                cols_hours = st.columns(8)
+                with cols_hours[0]:
+                    st.markdown(f"**{heure:02d}:00**")
+                
+                for day_num in range(7):
+                    with cols_hours[day_num + 1]:
+                        courses_slot = []
+                        for c in week_courses:
+                            if c['day_offset'] != day_num:
+                                continue
+                            
+                            heure_a_afficher = c.get('heure_pec_prevue')
+                            if not heure_a_afficher:
+                                heure_a_afficher = extract_time_str(c['heure_prevue'])
+                            
+                            if heure_a_afficher:
+                                parts = heure_a_afficher.split(':')
+                                if len(parts) == 2:
+                                    h, m = parts
+                                    heure_normalisee = f"{int(h):02d}:{m}"
+                                else:
+                                    heure_normalisee = heure_a_afficher
+                            else:
+                                heure_normalisee = None
+                            
+                            if heure_normalisee and heure_normalisee.startswith(f"{heure:02d}:"):
+                                courses_slot.append(c)
+                        
+                        if courses_slot:
+                            courses_slot.sort(key=lambda c: c.get('heure_pec_prevue') or extract_time_str(c['heure_prevue']) or '')
+                        
+                        if courses_slot:
+                            for course in courses_slot:
+                                statut_emoji = {
+                                    'nouvelle': '🔵',
+                                    'confirmee': '🟡',
+                                    'pec': '🔴',
+                                    'deposee': '🟢'
+                                }
+                                emoji = statut_emoji.get(course['statut'], '⚪')
+                                
+                                heure_affichage = course.get('heure_pec_prevue')
+                                if not heure_affichage:
+                                    heure_affichage = extract_time_str(course['heure_prevue'])
+                                
+                                if heure_affichage:
+                                    parts = heure_affichage.split(':')
+                                    if len(parts) == 2:
+                                        h, m = parts
+                                        heure_affichage = f"{int(h):02d}:{m}"
+                                
+                                chauffeur_prenom = course['chauffeur_name'].split()[0]
+                                with st.popover(f"{chauffeur_prenom}\n{emoji} {heure_affichage}", use_container_width=True):
+                                    st.markdown(f"**{course['nom_client']}**")
+                                    st.caption(f"📞 {course['telephone_client']}")
+                                    
+                                    if course.get('heure_pec_prevue'):
+                                        heure_pec = course['heure_pec_prevue']
+                                        parts = heure_pec.split(':')
+                                        if len(parts) == 2:
+                                            h, m = parts
+                                            heure_pec = f"{int(h):02d}:{m}"
+                                        st.caption(f"⏰ **Heure PEC:** {heure_pec}")
+                                    else:
+                                        st.caption(f"⏰ Création: {extract_time_str(course['heure_prevue'])}")
+                                    
+                                    st.caption(f"📍 **PEC:** {course['adresse_pec']}")
+                                    st.caption(f"🏁 **Dépose:** {course['lieu_depose']}")
+                                    st.caption(f"🚗 {course['chauffeur_name']}")
+                                    st.caption(f"💰 {course['tarif_estime']}€ | {course['km_estime']} km")
+                        else:
+                            st.write("")
+            
+            st.markdown("---")
+            st.caption("🔵 Nouvelle | 🟡 Confirmée | 🔴 PEC | 🟢 Terminée")
+    
+    with tab4:
+        st.subheader("📆 Planning du Jour")
+        
+        # Gestion des réattributions
+        query_params = st.query_params
+        if query_params.get("action") == "reassign":
+            try:
+                course_id = int(query_params.get("course_id"))
+                new_chauffeur_id = int(query_params.get("new_chauffeur_id"))
+                old_chauffeur_name = query_params.get("old_chauffeur_name", "")
+                new_chauffeur_name = query_params.get("new_chauffeur_name", "")
+                
+                result = reassign_course_to_driver(course_id, new_chauffeur_id)
+                
+                if result['success']:
+                    st.success(f"✅ Course réattribuée : **{old_chauffeur_name}** → **{new_chauffeur_name}**")
+                else:
+                    st.error(f"❌ Erreur : {result.get('error', 'Erreur inconnue')}")
+                
+                st.query_params.clear()
+                
+            except (ValueError, TypeError) as e:
+                st.error(f"❌ Erreur : paramètres invalides")
+                st.query_params.clear()
+        
+        # Initialiser la date
+        if 'planning_jour_date' not in st.session_state:
+            st.session_state.planning_jour_date = datetime.now(TIMEZONE).date()
+        
+        # Sélecteur de date
+        selected_date = st.date_input(
+            "Date",
+            value=st.session_state.planning_jour_date,
+            key="date_picker_jour"
+        )
+        if selected_date != st.session_state.planning_jour_date:
+            st.session_state.planning_jour_date = selected_date
+            st.rerun()
+        
+        # Afficher la date en français
+        jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+        jour_semaine = jours_fr[selected_date.weekday()]
+        st.markdown(f"### {jour_semaine} {selected_date.strftime('%d/%m/%Y')}")
+        
+        st.markdown("---")
+        
+        # Mode Réattribution Rapide
+        mode_reattribution = st.checkbox("🔄 Mode Réattribution Rapide", value=False, 
+                                        help="Sélectionnez une ou plusieurs courses pour les réattribuer")
+        
+        if mode_reattribution:
+            st.info("💡 **Sélectionnez les courses, choisissez le nouveau chauffeur, puis cliquez sur Réattribuer**")
+            
+            courses_jour = get_courses(date_filter=st.session_state.planning_jour_date.strftime('%Y-%m-%d'))
+            chauffeurs = get_chauffeurs()
+            
+            if not courses_jour:
+                st.warning("Aucune course pour ce jour")
+            else:
+                if 'selected_courses' not in st.session_state:
+                    st.session_state.selected_courses = []
+                
+                st.markdown("#### 1️⃣ Sélectionner les courses")
+                
+                courses_par_chauffeur = {}
+                for course in courses_jour:
+                    chauffeur_id = course['chauffeur_id']
+                    if chauffeur_id not in courses_par_chauffeur:
+                        courses_par_chauffeur[chauffeur_id] = []
+                    courses_par_chauffeur[chauffeur_id].append(course)
+                
+                selected_course_ids = []
+                
+                for chauffeur in chauffeurs:
+                    if chauffeur['id'] in courses_par_chauffeur:
+                        with st.expander(f"🚗 {chauffeur['full_name']} ({len(courses_par_chauffeur[chauffeur['id']])} course(s))", expanded=True):
+                            courses = courses_par_chauffeur[chauffeur['id']]
+                            courses.sort(key=lambda c: c.get('heure_pec_prevue') or extract_time_str(c['heure_prevue']) or '')
+                            
+                            for course in courses:
+                                statut_emoji = {
+                                    'nouvelle': '🔵',
+                                    'confirmee': '🟡',
+                                    'pec': '🔴',
+                                    'deposee': '🟢'
+                                }
+                                emoji = statut_emoji.get(course['statut'], '⚪')
+                                
+                                heure_affichage = course.get('heure_pec_prevue')
+                                if not heure_affichage:
+                                    heure_affichage = extract_time_str(course['heure_prevue'])
+                                
+                                if heure_affichage:
+                                    parts = heure_affichage.split(':')
+                                    if len(parts) == 2:
+                                        h, m = parts
+                                        heure_affichage = f"{int(h):02d}:{m}"
+                                
+                                label = f"{emoji} {heure_affichage} - {course['nom_client']} ({course['adresse_pec']} → {course['lieu_depose']})"
+                                
+                                if st.checkbox(label, key=f"select_course_{course['id']}"):
+                                    selected_course_ids.append(course['id'])
+                
+                if selected_course_ids:
+                    st.markdown(f"#### 2️⃣ Nouveau chauffeur ({len(selected_course_ids)} course(s))")
+                    
+                    chauffeur_options = {f"{ch['full_name']}": ch['id'] for ch in chauffeurs}
+                    nouveau_chauffeur_name = st.selectbox(
+                        "Choisir le nouveau chauffeur",
+                        options=list(chauffeur_options.keys()),
+                        key="nouveau_chauffeur_select"
+                    )
+                    nouveau_chauffeur_id = chauffeur_options[nouveau_chauffeur_name]
+                    
+                    st.markdown("#### 3️⃣ Confirmer")
+                    col1, col2 = st.columns([1, 4])
+                    with col1:
+                        if st.button("🔄 Réattribuer", type="primary", use_container_width=True):
+                            success_count = 0
+                            for course_id in selected_course_ids:
+                                result = reassign_course_to_driver(course_id, nouveau_chauffeur_id)
+                                if result['success']:
+                                    success_count += 1
+                            
+                            if success_count == len(selected_course_ids):
+                                st.success(f"✅ {success_count} course(s) réattribuée(s) à {nouveau_chauffeur_name} !")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Erreur : {success_count}/{len(selected_course_ids)} course(s) réattribuée(s)")
+                    
+                    with col2:
+                        if st.button("❌ Annuler", use_container_width=True):
+                            st.rerun()
+                else:
+                    st.info("👆 Sélectionnez au moins une course")
+            
+            st.markdown("---")
+        
+        st.markdown("---")
+        
+        # Récupérer tous les chauffeurs
+        chauffeurs = get_chauffeurs()
+        
+        # Ordre personnalisé
+        def ordre_chauffeur(chauffeur):
+            nom = chauffeur['full_name'].lower()
+            if 'patron' in nom:
+                return (0, nom)
+            elif 'franck' in nom:
+                return (1, nom)
+            elif 'laurence' in nom:
+                return (2, nom)
+            else:
+                return (3, nom)
+        
+        chauffeurs = sorted(chauffeurs, key=ordre_chauffeur)
+        
+        nb_colonnes = 4
+        
+        # Récupérer toutes les courses du jour
+        courses_jour = get_courses(date_filter=st.session_state.planning_jour_date.strftime('%Y-%m-%d'))
+        
+        # Créer 4 colonnes
+        cols_chauffeurs = st.columns(nb_colonnes)
+        
+        for i in range(nb_colonnes):
+            with cols_chauffeurs[i]:
+                if i < len(chauffeurs):
+                    chauffeur = chauffeurs[i]
+                    st.markdown(f"### 🚗 {chauffeur['full_name']}")
+                    
+                    courses_chauffeur = [c for c in courses_jour if c['chauffeur_id'] == chauffeur['id']]
+                    courses_chauffeur.sort(key=lambda c: c.get('heure_pec_prevue') or extract_time_str(c['heure_prevue']) or '')
+                    
+                    if courses_chauffeur:
+                        for course in courses_chauffeur:
+                            statut_emoji = {
+                                'nouvelle': '🔵',
+                                'confirmee': '🟡',
+                                'pec': '🔴',
+                                'deposee': '🟢'
+                            }
+                            emoji = statut_emoji.get(course['statut'], '⚪')
+                            
+                            heure_affichage = course.get('heure_pec_prevue')
+                            if not heure_affichage:
+                                heure_affichage = extract_time_str(course['heure_prevue'])
+                            
+                            if heure_affichage:
+                                parts = heure_affichage.split(':')
+                                if len(parts) == 2:
+                                    h, m = parts
+                                    heure_affichage = f"{int(h):02d}:{m}"
+                            
+                            with st.popover(f"{emoji} {heure_affichage} - {course['nom_client']}", use_container_width=True):
+                                st.markdown(f"**{course['nom_client']}** - {course['telephone_client']}")
+                                
+                                if course.get('heure_pec_prevue'):
+                                    heure_pec = course['heure_pec_prevue']
+                                    parts = heure_pec.split(':')
+                                    if len(parts) == 2:
+                                        h, m = parts
+                                        heure_pec = f"{int(h):02d}:{m}"
+                                    st.caption(f"⏰ {heure_pec} • {course['adresse_pec']} → {course['lieu_depose']}")
+                                else:
+                                    st.caption(f"📍 {course['adresse_pec']} → {course['lieu_depose']}")
+                                
+                                st.caption(f"💰 {course['tarif_estime']}€ | {course['km_estime']} km")
+                                
+                                st.markdown("---")
+                                
+                                if course['statut'] == 'nouvelle':
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        if st.button("Confirmer", key=f"confirm_jour_{course['id']}", use_container_width=True):
+                                            update_course_status(course['id'], 'confirmee')
+                                            st.rerun()
+                                    with col2:
+                                        if st.button("Supp", key=f"del_jour_{course['id']}", use_container_width=True):
+                                            st.session_state[f'confirm_del_jour_{course["id"]}'] = True
+                                            st.rerun()
+                                
+                                elif course['statut'] == 'confirmee':
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        if st.button("📍 PEC", key=f"pec_jour_{course['id']}", use_container_width=True):
+                                            update_course_status(course['id'], 'pec')
+                                            st.rerun()
+                                    with col2:
+                                        if st.button("Supp", key=f"del_jour_{course['id']}", use_container_width=True):
+                                            st.session_state[f'confirm_del_jour_{course["id"]}'] = True
+                                            st.rerun()
+                                
+                                elif course['statut'] == 'pec':
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        if st.button("🏁 Déposé", key=f"depose_jour_{course['id']}", use_container_width=True):
+                                            update_course_status(course['id'], 'deposee')
+                                            st.rerun()
+                                    with col2:
+                                        if st.button("Supp", key=f"del_jour_{course['id']}", use_container_width=True):
+                                            st.session_state[f'confirm_del_jour_{course["id"]}'] = True
+                                            st.rerun()
+                                
+                                elif course['statut'] == 'deposee':
+                                    if st.button("Supp", key=f"del_jour_{course['id']}", use_container_width=True):
+                                        st.session_state[f'confirm_del_jour_{course["id"]}'] = True
+                                        st.rerun()
+                                
+                                if st.session_state.get(f'confirm_del_jour_{course["id"]}', False):
+                                    st.warning("⚠️ Confirmer la suppression ?")
+                                    col_c1, col_c2 = st.columns(2)
+                                    with col_c1:
+                                        if st.button("❌ Annuler", key=f"cancel_del_jour_{course['id']}", use_container_width=True):
+                                            del st.session_state[f'confirm_del_jour_{course["id"]}']
+                                            st.rerun()
+                                    with col_c2:
+                                        if st.button("✅ Confirmer", key=f"ok_del_jour_{course['id']}", use_container_width=True):
+                                            delete_course(course['id'])
+                                            del st.session_state[f'confirm_del_jour_{course["id"]}']
+                                            st.rerun()
+                    else:
+                        st.info("Aucune course")
+                else:
+                    st.markdown(f"### ⚪ Chauffeur {i+1}")
+                    st.info("Non assigné")
+        
+        st.markdown("---")
+        st.caption("🔵 Nouvelle | 🟡 Confirmée | 🔴 PEC | 🟢 Terminée")
+    
+    with tab5:
+        st.subheader("💡 Assistant Intelligent - Suggestion automatique de chauffeur")
+        
+        st.info("🎯 **L'assistant analyse** : Distance depuis dernière course, charge de travail, disponibilité")
+        
+        chauffeurs_list = get_chauffeurs()
+        
+        if not chauffeurs_list:
+            st.error("⚠️ Aucun chauffeur disponible.")
+        else:
+            st.markdown("### 📋 Nouvelle course")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                nom_client_assistant = st.text_input("Nom du client", key="nom_client_assistant")
+                adresse_pec_assistant = st.text_input("Adresse PEC", key="adresse_pec_assistant",
+                                                     help="Ex: Dangeau, Place de l'Église")
+            
+            with col2:
+                lieu_depose_assistant = st.text_input("Lieu de dépose", key="lieu_depose_assistant",
+                                                     help="Ex: Chartres Gare")
+                heure_prevue_assistant = st.time_input("Heure PEC", value=datetime.now(TIMEZONE).time(),
+                                                       key="heure_prevue_assistant")
+            
+            if st.button("🤖 Suggérer le meilleur chauffeur", type="primary", use_container_width=True):
+                
+                if not nom_client_assistant or not adresse_pec_assistant or not lieu_depose_assistant:
+                    st.error("⚠️ Veuillez remplir tous les champs")
+                else:
+                    with st.spinner("🔄 Analyse en cours..."):
+                        
+                        try:
+                            google_api_key = st.secrets["google_maps"]["api_key"]
+                        except:
+                            st.error("⚠️ Erreur : Clé API Google Maps non configurée")
+                            st.stop()
+                        
+                        date_aujourdhui = datetime.now(TIMEZONE).strftime('%Y-%m-%d')
+                        
+                        chauffeurs_data = []
+                        
+                        for chauf in chauffeurs_list:
+                            courses_chauffeur = get_courses(chauffeur_id=chauf['id'], date_filter=date_aujourdhui)
+                            nb_courses = len(courses_chauffeur) if courses_chauffeur else 0
+                            
+                            last_course_data = None
+                            if courses_chauffeur and len(courses_chauffeur) > 0:
+                                courses_triees = sorted(courses_chauffeur, 
+                                                       key=lambda x: x.get('heure_prevue', ''), 
+                                                       reverse=True)
+                                derniere = courses_triees[0]
+                                last_course_data = {
+                                    'lieu_depose': derniere.get('lieu_depose', '')
+                                }
+                            
+                            chauffeurs_data.append({
+                                'id': chauf['id'],
+                                'name': chauf['full_name'],
+                                'last_course': last_course_data,
+                                'courses_today': nb_courses
+                            })
+                        
+                        course_data = {
+                            'adresse_pec': adresse_pec_assistant,
+                            'heure_prevue': datetime.now(TIMEZONE),
+                            'lieu_depose': lieu_depose_assistant
+                        }
+                        
+                        try:
+                            suggestions = suggest_best_driver(
+                                chauffeurs=chauffeurs_data,
+                                course_data=course_data,
+                                api_key=google_api_key
+                            )
+                            
+                            st.session_state['assistant_suggestions'] = suggestions
+                            st.session_state['assistant_course_data'] = {
+                                'nom_client': nom_client_assistant,
+                                'adresse_pec': adresse_pec_assistant,
+                                'lieu_depose': lieu_depose_assistant,
+                                'heure_prevue': heure_prevue_assistant
+                            }
+                            
+                            st.success("✅ Analyse terminée !")
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erreur lors de l'analyse : {str(e)}")
+            
+            if 'assistant_suggestions' in st.session_state and st.session_state['assistant_suggestions']:
+                
+                st.markdown("---")
+                st.markdown("### 📊 Résultats - Classement des chauffeurs")
+                
+                suggestions = st.session_state['assistant_suggestions']
+                course_info = st.session_state.get('assistant_course_data', {})
+                
+                st.info(f"**Course :** {course_info.get('nom_client', 'N/A')} | "
+                       f"{course_info.get('adresse_pec', 'N/A')} → {course_info.get('lieu_depose', 'N/A')}")
+                
+                for i, sug in enumerate(suggestions, 1):
+                    
+                    if i == 1:
+                        emoji = "🏆"
+                        color = "#28a745"
+                        badge = "OPTIMAL"
+                    elif i == 2:
+                        emoji = "⚠️"
+                        color = "#ffc107"
+                        badge = "ALTERNATIF"
+                    else:
+                        emoji = "❌"
+                        color = "#dc3545"
+                        badge = "NON RECOMMANDÉ"
+                    
+                    with st.container():
+                        st.markdown(
+                            f"""
+                            <div style="border: 2px solid {color}; border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                                <h4>{emoji} #{i} - {sug['driver_name']} <span style="background-color: {color}; color: white; padding: 3px 10px; border-radius: 5px; font-size: 0.8em;">{badge}</span></h4>
+                                <p style="font-size: 1.2em; font-weight: bold;">Score : {sug['score']}/100 points</p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                        
+                        col_info1, col_info2, col_info3 = st.columns(3)
+                        
+                        with col_info1:
+                            if sug['distance_km'] is not None:
+                                st.metric("Distance", f"{sug['distance_km']} km")
+                                st.caption(f"~{sug['duration_min']} min")
+                            else:
+                                st.metric("Distance", "À sa base")
+                        
+                        with col_info2:
+                            st.metric("Courses aujourd'hui", sug['courses_today'])
+                        
+                        with col_info3:
+                            st.metric("Disponibilité", "✅ OK" if sug['available'] else "❌ Occupé")
+                        
+                        st.caption(f"**Détails :** {sug['details']}")
+                        
+                        if st.button(f"✅ Assigner à {sug['driver_name']}", 
+                                   key=f"assign_{sug['driver_id']}", 
+                                   use_container_width=True,
+                                   type="primary" if i == 1 else "secondary"):
+                            
+                            heure_prevue_dt = datetime.combine(
+                                datetime.now(TIMEZONE).date(),
+                                course_info.get('heure_prevue', datetime.now(TIMEZONE).time())
+                            )
+                            heure_prevue_dt = TIMEZONE.localize(heure_prevue_dt)
+                            
+                            course_to_create = {
+                                'chauffeur_id': sug['driver_id'],
+                                'nom_client': course_info.get('nom_client', ''),
+                                'telephone_client': '',
+                                'adresse_pec': course_info.get('adresse_pec', ''),
+                                'lieu_depose': course_info.get('lieu_depose', ''),
+                                'heure_prevue': heure_prevue_dt.isoformat(),
+                                'type_course': 'Autre',
+                                'tarif_estime': 0,
+                                'km_estime': sug['distance_km'] if sug['distance_km'] else 0,
+                                'commentaire': f"Suggéré par Assistant (Score: {sug['score']}/100)",
+                                'created_by': st.session_state.user['id']
+                            }
+                            
+                            try:
+                                create_course(course_to_create)
+                                st.success(f"✅ Course créée et assignée à {sug['driver_name']} !")
+                                
+                                if 'assistant_suggestions' in st.session_state:
+                                    del st.session_state['assistant_suggestions']
+                                if 'assistant_course_data' in st.session_state:
+                                    del st.session_state['assistant_course_data']
+                                
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Erreur : {str(e)}")
+                
+                st.markdown("---")
+                
+                if st.button("🔄 Nouvelle suggestion", use_container_width=True):
+                    if 'assistant_suggestions' in st.session_state:
+                        del st.session_state['assistant_suggestions']
+                    if 'assistant_course_data' in st.session_state:
+                        del st.session_state['assistant_course_data']
+                    st.rerun()
 
+
+# ============================================
+# INTERFACE CHAUFFEUR - OPTIMISÉE
+# ============================================
 
 def chauffeur_page():
     """Interface Chauffeur - OPTIMISÉE avec système de notifications"""
@@ -1403,6 +2663,7 @@ def chauffeur_page():
     # ============================================
     # AUTO-REFRESH AUTOMATIQUE (30 secondes) - STREAMLIT-AUTOREFRESH
     # ============================================
+    # Package officiel qui fonctionne vraiment !
     count = st_autorefresh(interval=30000, key="chauffeur_autorefresh")
     
     # ============================================
