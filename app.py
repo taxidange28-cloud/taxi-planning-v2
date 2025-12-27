@@ -2739,14 +2739,15 @@ def chauffeur_page():
     # ============================================
     unread_count = get_unread_count(st.session_state.user['id'])
     
-    # ============================================
-    # SON DE NOTIFICATION - BIP GRAVE (VERSION SÉCURISÉE)
+# ============================================
+    # SON DE NOTIFICATION - BIP GRAVE (CORRIGÉ)
     # ============================================
     if unread_count > 0:
+        # Initialiser le compteur si nécessaire
         if 'last_notif_count' not in st.session_state:
             st.session_state.last_notif_count = 0
         
-        # Jouer le son SEULEMENT si nouveau
+        # Si nouvelles notifications
         if unread_count > st.session_state.last_notif_count:
             st.markdown("""
                 <audio autoplay>
@@ -2754,7 +2755,10 @@ def chauffeur_page():
                 </audio>
             """, unsafe_allow_html=True)
             st.session_state.last_notif_count = unread_count
-    st.session_state.notification_sound_played = True
+    else:
+        # CORRECTION : Réinitialiser quand plus de notifications
+        st.session_state.last_notif_count = 0
+
     if unread_count > 0:
         # Badge de notification
         st.markdown(f"""
