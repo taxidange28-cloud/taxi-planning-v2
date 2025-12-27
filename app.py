@@ -2715,7 +2715,12 @@ def secretaire_page():
 
 def chauffeur_page():
     """Interface Chauffeur - OPTIMISÉE avec système de notifications"""
-    
+    # ============================================
+    # VÉRIFICATION SESSION AVANT AUTO-REFRESH
+    # ============================================
+    if 'user' not in st.session_state:
+        st.rerun()
+        return
     # ============================================
     # AUTO-REFRESH AUTOMATIQUE (30 secondes) - STREAMLIT-AUTOREFRESH
     # ============================================
