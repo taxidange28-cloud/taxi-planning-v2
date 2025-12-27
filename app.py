@@ -2736,9 +2736,9 @@ def chauffeur_page():
     # ============================================
 # SON DE NOTIFICATION - BIP GRAVE
 # ============================================
-if unread_count > 0 and not st.session_state.get('notification_sound_played', False):
-    components.html("""
-        <script>
+    if unread_count > 0 and not st.session_state.get('notification_sound_played', False):
+        components.html("""
+            <script>
             // Créer le contexte audio
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             
