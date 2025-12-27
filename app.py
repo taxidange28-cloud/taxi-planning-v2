@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -2736,7 +2737,7 @@ def chauffeur_page():
 # SON DE NOTIFICATION - BIP GRAVE
 # ============================================
 if unread_count > 0 and not st.session_state.get('notification_sound_played', False):
-    st.components.v1.html("""
+    components.html("""
         <script>
             // Créer le contexte audio
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
