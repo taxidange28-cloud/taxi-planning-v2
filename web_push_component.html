@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Web Push Notifications</title>
+</head>
+<body>
+    <div id="notification-status"></div>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js"></script>
+
+    <script>
+        // Configuration Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyCe08U4nEDIK9COhMUAWmz8YuxoCluZKfY",
+            authDomain: "transport-dange.firebaseapp.com",
+            projectId: "transport-dange",
+            storageBucket: "transport-dange.firebasestorage.app",
+            messagingSenderId: "86580303208",
+            appId: "1:86580303208:web:fc2e8da737045a29dbf2dd"
+        };
+
+        // Clé VAPID
+        const vapidKey = "BJyRYRH1eyGZiFFSIk5dSy1XlJn5GQKD_1KLT1OhaTm6vsjTV2kiZXePJqS6kGbeZvzQUgNPO6xsk712YmcluL8";
+
+        // Initialiser Firebase
+        firebase.initializeApp(firebaseConfig);
+        const messaging = firebase.messaging();
+
+        // Fonction pour demander la permission et obtenir le token
+        async function requestNotificationPermission() {
+            try {
+                console.log('📱 Demande de permission pour les notifications...');
+                
+                const permission = await Notification.requestPermission();
+                
+                if (permission === 'granted') {
+                    console.log('✅ Permission accordée !');
+                    
+                    // Obtenir le token FCM
+                    const token = await messaging.getToken({ vapidKey: vapidKey });
+                    
+                    if (token) {
+                        console.log('🔑 Token FCM obtenu:', token);
+                        
+                        // Envoyer le token à Streamlit
+                        window.parent.postMessage({
+                            type: 'FCM_TOKEN',
+                            token: token
+                        }, '*');
+                        
+                        document.getElementById('notification-status').innerHTML = 
+                            '<div style="background: #d4edda; color: #155724; padding: 10px; border-radius: 5px; margin: 10px 0;">' +
+                            '✅ Notifications activées ! Vous recevrez les nouvelles courses avec un son.</div>';
+                        
+                        return token;
+                    }
+                } else if (permission === 'denied') {
+                    console.log('❌ Permission refusée');
+                    document.getElementById('notification-status').innerHTML = 
+                        '<div style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin: 10px 0;">' +
+                        '❌ Notifications bloquées. Activez-les dans les paramètres de Chrome.</div>';
+                } else {
+                    console.log('⚠️ Permission en attente');
+                }
+            } catch (error) {
+                console.error('❌ Erreur permission notifications:', error);
+                document.getElementById('notification-status').innerHTML = 
+                    '<div style="background: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; margin: 10px 0;">' +
+                    '⚠️ Erreur: ' + error.message + '</div>';
+            }
+        }
+
+        // Gérer les notifications en premier plan
+        messaging.onMessage((payload) => {
+            console.log('📬 Notification reçue en premier plan:', payload);
+            
+            const notificationTitle = payload.notification.title || '🆕 Nouvelle course';
+            const notificationOptions = {
+                body: payload.notification.body,
+                icon: '/favicon.ico',
+                badge: '/favicon.ico',
+                tag: 'nouvelle-course',
+                requireInteraction: true,
+                vibrate: [200, 100, 200, 100, 200],
+                data: payload.data
+            };
+
+            // Afficher la notification
+            if (Notification.permission === 'granted') {
+                new Notification(notificationTitle, notificationOptions);
+                
+                // Jouer un son (bip grave)
+                playNotificationSound();
+            }
+            
+            // Notifier Streamlit qu'une nouvelle notification est arrivée
+            window.parent.postMessage({
+                type: 'NEW_NOTIFICATION',
+                data: payload
+            }, '*');
+        });
+
+        // Fonction pour jouer le son de notification (bip grave)
+        function playNotificationSound() {
+            try {
+                // Créer un contexte audio
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Créer un oscillateur (générateur de son)
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                // Configuration du bip grave
+                oscillator.type = 'sine'; // Onde sinusoïdale pour un son doux
+                oscillator.frequency.setValueAtTime(200, audioContext.currentTime); // 200 Hz = grave
+                
+                // Configuration du volume
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                
+                // Connecter les nœuds
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                // Jouer le son
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+                
+                console.log('🔊 Son de notification joué');
+            } catch (error) {
+                console.error('❌ Erreur lecture son:', error);
+            }
+        }
+
+        // Enregistrer le Service Worker
+        async function registerServiceWorker() {
+            try {
+                if ('serviceWorker' in navigator) {
+                    console.log('🔧 Enregistrement du Service Worker...');
+                    
+                    // Note: Sur Streamlit Cloud, le Service Worker ne peut pas être enregistré
+                    // à la racine, donc les notifications en arrière-plan ne fonctionneront pas.
+                    // Seules les notifications en premier plan (app ouverte) fonctionneront.
+                    
+                    console.log('⚠️ Service Worker non disponible sur Streamlit Cloud');
+                    console.log('✅ Notifications en premier plan activées (app ouverte uniquement)');
+                }
+            } catch (error) {
+                console.error('❌ Erreur Service Worker:', error);
+            }
+        }
+
+        // Initialiser au chargement
+        window.addEventListener('load', async () => {
+            console.log('🚀 Initialisation des notifications Web Push...');
+            
+            // Vérifier le support des notifications
+            if (!('Notification' in window)) {
+                console.error('❌ Les notifications ne sont pas supportées par ce navigateur');
+                document.getElementById('notification-status').innerHTML = 
+                    '<div style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px;">' +
+                    '❌ Votre navigateur ne supporte pas les notifications.</div>';
+                return;
+            }
+            
+            // Enregistrer le Service Worker
+            await registerServiceWorker();
+            
+            // Demander la permission si pas encore accordée
+            if (Notification.permission === 'default') {
+                await requestNotificationPermission();
+            } else if (Notification.permission === 'granted') {
+                // Permission déjà accordée, obtenir le token
+                try {
+                    const token = await messaging.getToken({ vapidKey: vapidKey });
+                    if (token) {
+                        console.log('🔑 Token FCM (déjà autorisé):', token);
+                        window.parent.postMessage({
+                            type: 'FCM_TOKEN',
+                            token: token
+                        }, '*');
+                        
+                        document.getElementById('notification-status').innerHTML = 
+                            '<div style="background: #d4edda; color: #155724; padding: 10px; border-radius: 5px;">' +
+                            '✅ Notifications déjà activées</div>';
+                    }
+                } catch (error) {
+                    console.error('❌ Erreur récupération token:', error);
+                }
+            } else {
+                document.getElementById('notification-status').innerHTML = 
+                    '<div style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px;">' +
+                    '❌ Notifications bloquées. Activez-les dans les paramètres de Chrome.</div>';
+            }
+        });
+
+        // Message pour déboguer
+        console.log('✅ Composant Web Push chargé');
+    </script>
+</body>
+</html>
