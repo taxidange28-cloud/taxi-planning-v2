@@ -2733,37 +2733,22 @@ def chauffeur_page():
     # SYSTÈME DE NOTIFICATIONS
     # ============================================
     unread_count = get_unread_count(st.session_state.user['id'])
-    # ============================================
-# SON DE NOTIFICATION - BIP GRAVE
-# ============================================
-    if unread_count > 0 and not st.session_state.get('notification_sound_played', False):
-        components.html("""
-            <script>
-            // Créer le contexte audio
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // Créer oscillateur pour bip grave
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            // Bip grave 200Hz
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
-            
-            // Volume
-            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.8);
-            
-            // Connecter et jouer
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.8);
-            
-            console.log('🔊 Bip notification joué');
-        </script>
-    """, height=0)
     
+    # ============================================
+    # SON DE NOTIFICATION - BIP GRAVE (VERSION SÉCURISÉE)
+    # ============================================
+    if unread_count > 0:
+        if 'last_notif_count' not in st.session_state:
+            st.session_state.last_notif_count = 0
+        
+        # Jouer le son SEULEMENT si nouveau
+        if unread_count > st.session_state.last_notif_count:
+            st.markdown("""
+                <audio autoplay>
+                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
+                </audio>
+            """, unsafe_allow_html=True)
+            st.session_state.last_notif_count = unread_count
     st.session_state.notification_sound_played = True
     if unread_count > 0:
         # Badge de notification
