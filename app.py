@@ -2795,53 +2795,38 @@ def chauffeur_page():
         if unread_count > st.session_state.last_notif_count:
             st.markdown("""
                 <script>
-                    // Fonction pour afficher notification native
-                    function showNotification() {
-                        if (Notification.permission === "granted") {
-                            // Notification 1
-                            new Notification("🚖 Nouvelle course !", {
-                                body: "Vous avez une nouvelle mission",
-                                icon: "https://em-content.zobj.net/thumbs/120/apple/354/taxi_1f695.png",
-                                vibrate: [300, 200, 300],
-                                tag: 'course-notification',
-                                requireInteraction: false
-                            });
-                            
-                            // Notification 2 (après 500ms)
-                            setTimeout(() => {
-                                new Notification("🚖 Nouvelle course !", {
-                                    body: "Vous avez une nouvelle mission",
-                                    vibrate: [300],
-                                    tag: 'course-notification-2',
-                                    requireInteraction: false
-                                });
-                            }, 500);
-                            
-                            // Notification 3 (après 1000ms)
-                            setTimeout(() => {
-                                new Notification("🚖 Nouvelle course !", {
-                                    body: "Vous avez une nouvelle mission",
-                                    vibrate: [300],
-                                    tag: 'course-notification-3',
-                                    requireInteraction: false
-                                });
-                            }, 1000);
-                            
-                            console.log('🔔 3 notifications natives envoyées');
-                            
-                        } else if (Notification.permission !== "denied") {
-                            // Demander permission
-                            Notification.requestPermission().then(permission => {
-                                if (permission === "granted") {
-                                    showNotification();
-                                }
-                            });
-                        } else {
-                            console.log('❌ Notifications bloquées par utilisateur');
-                        }
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // Fonction pour jouer UN bip
+                    function playBeep(startTime) {
+                        const oscillator = audioContext.createOscillator();
+                        const gainNode = audioContext.createGain();
+                        
+                        oscillator.type = 'sine';
+                        oscillator.frequency.setValueAtTime(200, startTime);
+                        
+                        gainNode.gain.setValueAtTime(0.5, startTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+                        
+                        oscillator.connect(gainNode);
+                        gainNode.connect(audioContext.destination);
+                        
+                        oscillator.start(startTime);
+                        oscillator.stop(startTime + 0.3);
                     }
                     
-                    showNotification();
+                    // VIBRATION en plus (si supporté)
+                    if (navigator.vibrate) {
+                        navigator.vibrate([300, 200, 300, 200, 300]);
+                    }
+                    
+                    // Jouer 3 bips espacés
+                    const now = audioContext.currentTime;
+                    playBeep(now);           // Bip 1
+                    playBeep(now + 0.5);     // Bip 2
+                    playBeep(now + 1.0);     // Bip 3
+                    
+                    console.log('🔊 3 bips + vibration');
                 </script>
             """, unsafe_allow_html=True)
             st.session_state.last_notif_count = unread_count
