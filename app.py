@@ -6,7 +6,7 @@ from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 import hashlib
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import os
 import pytz
 from weakref import WeakSet
@@ -356,10 +356,10 @@ def get_unread_count(chauffeur_id):
         WHERE chauffeur_id = %s AND lu = FALSE
     ''', (chauffeur_id,))
     
-    result = cursor.fetchone()
+    count = get_scalar_result(cursor) or 0
     release_db_connection(conn)
     
-    return list(result.values())[0] if result else 0
+    return int(count)
 
 
 # FONCTIONS CLIENTS RÉGULIERS
@@ -376,6 +376,7 @@ def create_client_regulier(data):
             nom_complet, telephone, adresse_pec_habituelle, adresse_depose_habituelle,
             type_course_habituel, tarif_habituel, km_habituels, remarques
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
     ''', (
         data['nom_complet'],
         data.get('telephone'),
@@ -386,7 +387,8 @@ def create_client_regulier(data):
         data.get('km_habituels'),
         data.get('remarques')
     ))
-    client_id = cursor.lastrowid
+    row = cursor.fetchone()
+    client_id = row['id'] if row else None
     conn.commit()
     release_db_connection(conn)
     return client_id
@@ -510,11 +512,19 @@ def create_course(data):
     # Déterminer si la course doit être visible pour le chauffeur
     heure_prevue = data['heure_prevue']
     if isinstance(heure_prevue, str):
-        heure_prevue = datetime.fromisoformat(heure_prevue.replace('Z', '+00:00'))
+        # gérer isoformat ou string
+        try:
+            heure_prevue = datetime.fromisoformat(heure_prevue.replace('Z', '+00:00'))
+        except Exception:
+            # fallback: try parsing without timezone
+            heure_prevue = datetime.strptime(heure_prevue, '%Y-%m-%d %H:%M:%S')
     
     # Convertir en timezone Paris
     if heure_prevue.tzinfo is None:
-        heure_prevue = TIMEZONE.localize(heure_prevue)
+        try:
+            heure_prevue = TIMEZONE.localize(heure_prevue)
+        except Exception:
+            heure_prevue = heure_prevue.replace(tzinfo=TIMEZONE)
     else:
         heure_prevue = heure_prevue.astimezone(TIMEZONE)
     
@@ -537,18 +547,18 @@ def create_course(data):
     ''', (
         data['chauffeur_id'],
         data['nom_client'],
-        data['telephone_client'],
+        data.get('telephone_client'),
         data['adresse_pec'],
-        data['lieu_depose'],
-        data['heure_prevue'],
+        data.get('lieu_depose'),
+        heure_prevue.isoformat(),
         data.get('heure_pec_prevue'),
         data.get('temps_trajet_minutes'),
         data.get('heure_depart_calculee'),
-        data['type_course'],
-        data['tarif_estime'],
-        data['km_estime'],
-        data['commentaire'],
-        data['created_by'],
+        data.get('type_course'),
+        data.get('tarif_estime'),
+        data.get('km_estime'),
+        data.get('commentaire'),
+        data.get('created_by'),
         data.get('client_regulier_id'),
         visible_chauffeur
     ))
@@ -602,7 +612,7 @@ def format_datetime_fr(datetime_input):
             return f"{jour}/{mois}/{annee} {time_part}"
         else:
             return format_date_fr(datetime_input)
-    except:
+    except Exception:
         return str(datetime_input)
 
 
@@ -684,26 +694,26 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
             'id': course['id'],
             'chauffeur_id': course['chauffeur_id'],
             'nom_client': course['nom_client'],
-            'telephone_client': course['telephone_client'],
+            'telephone_client': course.get('telephone_client'),
             'adresse_pec': course['adresse_pec'],
-            'lieu_depose': course['lieu_depose'],
+            'lieu_depose': course.get('lieu_depose'),
             'heure_prevue': course['heure_prevue'],
             'heure_pec_prevue': course.get('heure_pec_prevue'),
             'temps_trajet_minutes': course.get('temps_trajet_minutes'),
             'heure_depart_calculee': course.get('heure_depart_calculee'),
-            'type_course': course['type_course'],
-            'tarif_estime': course['tarif_estime'],
-            'km_estime': course['km_estime'],
-            'commentaire': course['commentaire'],
+            'type_course': course.get('type_course'),
+            'tarif_estime': course.get('tarif_estime'),
+            'km_estime': course.get('km_estime'),
+            'commentaire': course.get('commentaire'),
             'commentaire_chauffeur': course.get('commentaire_chauffeur'),
-            'statut': course['statut'],
-            'date_creation': course['date_creation'],
+            'statut': course.get('statut'),
+            'date_creation': course.get('date_creation'),
             'date_confirmation': course.get('date_confirmation'),
             'date_pec': course.get('date_pec'),
             'date_depose': course.get('date_depose'),
-            'created_by': course['created_by'],
+            'created_by': course.get('created_by'),
             'client_regulier_id': course.get('client_regulier_id'),
-            'chauffeur_name': course['chauffeur_name'],
+            'chauffeur_name': course.get('chauffeur_name'),
             'visible_chauffeur': course.get('visible_chauffeur', True)
         })
     
@@ -965,34 +975,6 @@ def update_course_status(course_id, new_status, km_reels=None, tarif_reel=None):
     conn.commit()
     release_db_connection(conn)
     return True
-    
-    cursor = conn.cursor()
-    
-    # Heure de Paris au format simple
-    now_paris = datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
-    
-    timestamp_field = {
-        'confirmee': 'date_confirmation',
-        'pec': 'date_pec',
-        'deposee': 'date_depose'
-    }
-    
-    if new_status in timestamp_field:
-        cursor.execute(f'''
-            UPDATE courses
-            SET statut = %s, {timestamp_field[new_status]} = %s
-            WHERE id = %s
-        ''', (new_status, now_paris, course_id))
-    else:
-        cursor.execute('''
-            UPDATE courses
-            SET statut = %s
-            WHERE id = %s
-        ''', (new_status, course_id))
-    
-    conn.commit()
-    release_db_connection(conn)
-    return True
 
 
 def update_commentaire_chauffeur(course_id, commentaire):
@@ -1160,7 +1142,9 @@ def reassign_course_to_driver(course_id, new_chauffeur_id):
     result = cursor.fetchone()
     
     if result:
-        old_chauffeur_id, nom_client, old_chauffeur_name = result['chauffeur_id'], result['nom_client'], result['full_name']
+        old_chauffeur_id = result['chauffeur_id']
+        nom_client = result.get('nom_client')
+        old_chauffeur_name = result.get('full_name')
         
         # Récupérer le nom du nouveau chauffeur
         cursor.execute('SELECT full_name FROM users WHERE id = %s', (new_chauffeur_id,))
@@ -1296,29 +1280,29 @@ def admin_page():
                     col1, col2 = st.columns(2)
                     with col1:
                         st.write(f"**Client :** {course['nom_client']}")
-                        st.write(f"**Téléphone :** {course['telephone_client']}")
+                        st.write(f"**Téléphone :** {course.get('telephone_client')}")
                         st.write(f"**📅 Date PEC :** {format_date_fr(course['heure_prevue'])}")
                         if course.get('heure_pec_prevue'):
                             st.success(f"⏰ **Heure PEC prévue : {course['heure_pec_prevue']}**")
                         st.write(f"**PEC :** {course['adresse_pec']}")
-                        st.write(f"**Dépose :** {course['lieu_depose']}")
-                        st.write(f"**Type :** {course['type_course']}")
+                        st.write(f"**Dépose :** {course.get('lieu_depose')}")
+                        st.write(f"**Type :** {course.get('type_course')}")
                     with col2:
-                        st.write(f"**Chauffeur :** {course['chauffeur_name']}")
-                        st.write(f"**Tarif estimé :** {course['tarif_estime']}€")
-                        st.write(f"**Km estimé :** {course['km_estime']} km")
-                        st.write(f"**Statut :** {course['statut'].upper()}")
-                        if course['commentaire']:
-                            st.write(f"**Commentaire secrétaire :** {course['commentaire']}")
+                        st.write(f"**Chauffeur :** {course.get('chauffeur_name')}")
+                        st.write(f"**Tarif estimé :** {course.get('tarif_estime')}€")
+                        st.write(f"**Km estimé :** {course.get('km_estime')} km")
+                        st.write(f"**Statut :** {course.get('statut', '').upper()}")
+                        if course.get('commentaire'):
+                            st.write(f"**Commentaire secrétaire :** {course.get('commentaire')}")
                     
                     if course.get('commentaire_chauffeur'):
                         st.warning(f"💭 **Commentaire chauffeur** : {course['commentaire_chauffeur']}")
                     
-                    if course['date_confirmation']:
+                    if course.get('date_confirmation'):
                         st.info(f"✅ Confirmée le : {format_datetime_fr(course['date_confirmation'])}")
-                    if course['date_pec']:
+                    if course.get('date_pec'):
                         st.info(f"📍 PEC effectuée le : {format_datetime_fr(course['date_pec'])}")
-                    if course['date_depose']:
+                    if course.get('date_depose'):
                         st.success(f"🏁 Déposée le : {format_datetime_fr(course['date_depose'])}")
         else:
             st.info("Aucune course pour cette sélection")
@@ -1396,7 +1380,10 @@ def admin_page():
             with col4:
                 cursor.execute("SELECT SUM(tarif_estime) FROM courses WHERE statut = 'deposee'")
                 ca_total = get_scalar_result(cursor) or 0
-                st.metric("CA réalisé", f"{ca_total:.2f}€")
+                try:
+                    st.metric("CA réalisé", f"{float(ca_total):.2f}€")
+                except Exception:
+                    st.metric("CA réalisé", f"{ca_total}€")
             
             release_db_connection(conn)
     
@@ -1546,14 +1533,14 @@ def secretaire_page():
                     # Pré-remplissage
                     if course_dupliquee:
                         default_nom = course_dupliquee['nom_client']
-                        default_tel = course_dupliquee['telephone_client']
+                        default_tel = course_dupliquee.get('telephone_client', '')
                         default_pec = course_dupliquee['adresse_pec']
-                        default_depose = course_dupliquee['lieu_depose']
+                        default_depose = course_dupliquee.get('lieu_depose', '')
                     elif client_selectionne:
                         default_nom = client_selectionne['nom_complet']
-                        default_tel = client_selectionne['telephone']
-                        default_pec = client_selectionne['adresse_pec_habituelle']
-                        default_depose = client_selectionne['adresse_depose_habituelle']
+                        default_tel = client_selectionne.get('telephone', '')
+                        default_pec = client_selectionne.get('adresse_pec_habituelle', '')
+                        default_depose = client_selectionne.get('adresse_depose_habituelle', '')
                     else:
                         default_nom = ""
                         default_tel = ""
@@ -1567,14 +1554,14 @@ def secretaire_page():
                 
                 with col2:
                     if course_dupliquee:
-                        default_type = course_dupliquee['type_course']
-                        default_tarif = course_dupliquee['tarif_estime']
-                        default_km = course_dupliquee['km_estime']
+                        default_type = course_dupliquee.get('type_course', "CPAM")
+                        default_tarif = course_dupliquee.get('tarif_estime', 0.0)
+                        default_km = course_dupliquee.get('km_estime', 0.0)
                         default_heure_pec = course_dupliquee.get('heure_pec_prevue', '')
                     elif client_selectionne:
-                        default_type = client_selectionne['type_course_habituel']
-                        default_tarif = client_selectionne['tarif_habituel']
-                        default_km = client_selectionne['km_habituels']
+                        default_type = client_selectionne.get('type_course_habituel', "CPAM")
+                        default_tarif = client_selectionne.get('tarif_habituel', 0.0)
+                        default_km = client_selectionne.get('km_habituels', 0.0)
                         default_heure_pec = ''
                     else:
                         default_type = "CPAM"
@@ -1622,8 +1609,20 @@ def secretaire_page():
                             elif client_selectionne:
                                 client_id = client_selectionne['id']
                             
-                            heure_prevue_naive = datetime.combine(date_course, datetime.now(TIMEZONE).time())
-                            heure_prevue = heure_prevue_naive.strftime('%Y-%m-%d %H:%M:%S')
+                            # Construire heure_prevue à partir de date_course et heure_pec_prevue ou time now
+                            if heure_pec_prevue:
+                                try:
+                                    parts = heure_pec_prevue.split(':')
+                                    heure = int(parts[0])
+                                    minute = int(parts[1])
+                                    heure_prevue_dt = datetime.combine(date_course, time(heure, minute))
+                                except Exception:
+                                    heure_prevue_dt = datetime.combine(date_course, datetime.now(TIMEZONE).time())
+                            else:
+                                heure_prevue_dt = datetime.combine(date_course, datetime.now(TIMEZONE).time())
+                            
+                            heure_prevue_dt = TIMEZONE.localize(heure_prevue_dt) if heure_prevue_dt.tzinfo is None else heure_prevue_dt.astimezone(TIMEZONE)
+                            heure_prevue = heure_prevue_dt.isoformat()
                             
                             course_data = {
                                 'chauffeur_id': chauffeur_id,
@@ -1643,7 +1642,6 @@ def secretaire_page():
                             
                             course_id = create_course(course_data)
                             if course_id:
-                                st.success(f"✅ Course créée pour {selected_chauffeur}")
                                 st.success(f"✅ Course créée pour {selected_chauffeur}")
                                 
                                 # Stocker les infos pour afficher le bouton de notification HORS du formulaire
@@ -1725,13 +1723,13 @@ def secretaire_page():
                     col1, col2 = st.columns(2)
                     with col1:
                         st.write(f"**Client :** {course['nom_client']}")
-                        st.write(f"**Tel :** {course['telephone_client']}")
+                        st.write(f"**Tel :** {course.get('telephone_client')}")
                         st.write(f"**PEC :** {course['adresse_pec']}")
-                        st.write(f"**Dépose :** {course['lieu_depose']}")
+                        st.write(f"**Dépose :** {course.get('lieu_depose')}")
                     with col2:
-                        st.write(f"**Chauffeur :** {course['chauffeur_name']}")
-                        st.write(f"**Tarif :** {course['tarif_estime']}€")
-                        st.write(f"**Km :** {course['km_estime']} km")
+                        st.write(f"**Chauffeur :** {course.get('chauffeur_name')}")
+                        st.write(f"**Tarif :** {course.get('tarif_estime')}€")
+                        st.write(f"**Km :** {course.get('km_estime')} km")
                     
                     if course.get('commentaire_chauffeur'):
                         st.warning(f"💭 {course['commentaire_chauffeur']}")
@@ -1927,9 +1925,10 @@ def secretaire_page():
                                         h, m = parts
                                         heure_affichage = f"{int(h):02d}:{m}"
                                 
-                                with st.popover(f"{emoji} {heure_affichage} - {course['nom_client']}", use_container_width=True):
+                                # Remplacement de st.popover par st.expander pour compatibilité
+                                with st.expander(f"{emoji} {heure_affichage} - {course['nom_client']}", expanded=False):
                                     st.markdown(f"**{course['nom_client']}**")
-                                    st.caption(f"📞 {course['telephone_client']}")
+                                    st.caption(f"📞 {course.get('telephone_client', '')}")
                                     
                                     if course.get('heure_pec_prevue'):
                                         heure_pec = course['heure_pec_prevue']
@@ -1940,9 +1939,9 @@ def secretaire_page():
                                         st.caption(f"⏰ **Heure PEC:** {heure_pec}")
                                     
                                     st.caption(f"📍 **PEC:** {course['adresse_pec']}")
-                                    st.caption(f"🏁 **Dépose:** {course['lieu_depose']}")
-                                    st.caption(f"💼 {course['type_course']}")
-                                    st.caption(f"💰 {course['tarif_estime']}€ | {course['km_estime']} km")
+                                    st.caption(f"🏁 **Dépose:** {course.get('lieu_depose', '')}")
+                                    st.caption(f"💼 {course.get('type_course', '')}")
+                                    st.caption(f"💰 {course.get('tarif_estime', 0)}€ | {course.get('km_estime', 0)} km")
                                     
                                     st.markdown("---")
                                     col_actions = st.columns(3)
@@ -1965,11 +1964,11 @@ def secretaire_page():
                                                 update_course_status(course['id'], 'deposee')
                                                 st.rerun()
                                     
-                                    if course['date_confirmation']:
+                                    if course.get('date_confirmation'):
                                         st.caption(f"✅ Confirmée le : {format_datetime_fr(course['date_confirmation'])}")
-                                    if course['date_pec']:
+                                    if course.get('date_pec'):
                                         st.caption(f"📍 PEC effectuée le : {format_datetime_fr(course['date_pec'])}")
-                                    if course['date_depose']:
+                                    if course.get('date_depose'):
                                         st.caption(f"🏁 Déposée le : {format_datetime_fr(course['date_depose'])}")
                                     
                                     st.markdown("---")
@@ -2053,7 +2052,7 @@ def secretaire_page():
             
         else:
             # AFFICHAGE NORMAL DU PLANNING SEMAINE
-            
+            # (Le code continue — inchangé pour ce bloc)
             # BOUTONS DE DISTRIBUTION
             st.markdown("### 📤 Distribution des courses")
             
@@ -2264,10 +2263,10 @@ def secretaire_page():
                                         h, m = parts
                                         heure_affichage = f"{int(h):02d}:{m}"
                                 
-                                chauffeur_prenom = course['chauffeur_name'].split()[0]
-                                with st.popover(f"{chauffeur_prenom}\n{emoji} {heure_affichage}", use_container_width=True):
+                                chauffeur_prenom = course.get('chauffeur_name', '').split()[0] if course.get('chauffeur_name') else ''
+                                with st.expander(f"{chauffeur_prenom}\n{emoji} {heure_affichage}", expanded=False):
                                     st.markdown(f"**{course['nom_client']}**")
-                                    st.caption(f"📞 {course['telephone_client']}")
+                                    st.caption(f"📞 {course.get('telephone_client', '')}")
                                     
                                     if course.get('heure_pec_prevue'):
                                         heure_pec = course['heure_pec_prevue']
@@ -2280,9 +2279,9 @@ def secretaire_page():
                                         st.caption(f"⏰ Création: {extract_time_str(course['heure_prevue'])}")
                                     
                                     st.caption(f"📍 **PEC:** {course['adresse_pec']}")
-                                    st.caption(f"🏁 **Dépose:** {course['lieu_depose']}")
-                                    st.caption(f"🚗 {course['chauffeur_name']}")
-                                    st.caption(f"💰 {course['tarif_estime']}€ | {course['km_estime']} km")
+                                    st.caption(f"🏁 **Dépose:** {course.get('lieu_depose', '')}")
+                                    st.caption(f"🚗 {course.get('chauffeur_name', '')}")
+                                    st.caption(f"💰 {course.get('tarif_estime', 0)}€ | {course.get('km_estime', 0)} km")
                         else:
                             st.write("")
             
@@ -2484,8 +2483,8 @@ def secretaire_page():
                                     h, m = parts
                                     heure_affichage = f"{int(h):02d}:{m}"
                             
-                            with st.popover(f"{emoji} {heure_affichage} - {course['nom_client']}", use_container_width=True):
-                                st.markdown(f"**{course['nom_client']}** - {course['telephone_client']}")
+                            with st.expander(f"{emoji} {heure_affichage} - {course['nom_client']}", expanded=False):
+                                st.markdown(f"**{course['nom_client']}** - {course.get('telephone_client', '')}")
                                 
                                 if course.get('heure_pec_prevue'):
                                     heure_pec = course['heure_pec_prevue']
@@ -2493,11 +2492,11 @@ def secretaire_page():
                                     if len(parts) == 2:
                                         h, m = parts
                                         heure_pec = f"{int(h):02d}:{m}"
-                                    st.caption(f"⏰ {heure_pec} • {course['adresse_pec']} → {course['lieu_depose']}")
+                                    st.caption(f"⏰ {heure_pec} • {course['adresse_pec']} → {course.get('lieu_depose', '')}")
                                 else:
-                                    st.caption(f"📍 {course['adresse_pec']} → {course['lieu_depose']}")
+                                    st.caption(f"📍 {course['adresse_pec']} → {course.get('lieu_depose', '')}")
                                 
-                                st.caption(f"💰 {course['tarif_estime']}€ | {course['km_estime']} km")
+                                st.caption(f"💰 {course.get('tarif_estime', 0)}€ | {course.get('km_estime', 0)} km")
                                 
                                 st.markdown("---")
                                 
@@ -2594,7 +2593,7 @@ def secretaire_page():
                         
                         try:
                             google_api_key = st.secrets["google_maps"]["api_key"]
-                        except:
+                        except Exception:
                             st.error("⚠️ Erreur : Clé API Google Maps non configurée")
                             st.stop()
                         
@@ -2690,19 +2689,19 @@ def secretaire_page():
                         col_info1, col_info2, col_info3 = st.columns(3)
                         
                         with col_info1:
-                            if sug['distance_km'] is not None:
+                            if sug.get('distance_km') is not None:
                                 st.metric("Distance", f"{sug['distance_km']} km")
-                                st.caption(f"~{sug['duration_min']} min")
+                                st.caption(f"~{sug.get('duration_min', 'N/A')} min")
                             else:
                                 st.metric("Distance", "À sa base")
                         
                         with col_info2:
-                            st.metric("Courses aujourd'hui", sug['courses_today'])
+                            st.metric("Courses aujourd'hui", sug.get('courses_today', 0))
                         
                         with col_info3:
-                            st.metric("Disponibilité", "✅ OK" if sug['available'] else "❌ Occupé")
+                            st.metric("Disponibilité", "✅ OK" if sug.get('available', False) else "❌ Occupé")
                         
-                        st.caption(f"**Détails :** {sug['details']}")
+                        st.caption(f"**Détails :** {sug.get('details', '')}")
                         
                         if st.button(f"✅ Assigner à {sug['driver_name']}", 
                                    key=f"assign_{sug['driver_id']}", 
@@ -2713,7 +2712,7 @@ def secretaire_page():
                                 datetime.now(TIMEZONE).date(),
                                 course_info.get('heure_prevue', datetime.now(TIMEZONE).time())
                             )
-                            heure_prevue_dt = TIMEZONE.localize(heure_prevue_dt)
+                            heure_prevue_dt = TIMEZONE.localize(heure_prevue_dt) if heure_prevue_dt.tzinfo is None else heure_prevue_dt.astimezone(TIMEZONE)
                             
                             course_to_create = {
                                 'chauffeur_id': sug['driver_id'],
@@ -2724,8 +2723,8 @@ def secretaire_page():
                                 'heure_prevue': heure_prevue_dt.isoformat(),
                                 'type_course': 'Autre',
                                 'tarif_estime': 0,
-                                'km_estime': sug['distance_km'] if sug['distance_km'] else 0,
-                                'commentaire': f"Suggéré par Assistant (Score: {sug['score']}/100)",
+                                'km_estime': sug.get('distance_km', 0) if sug.get('distance_km') else 0,
+                                'commentaire': f"Suggéré par Assistant (Score: {sug.get('score', 0)}/100)",
                                 'created_by': st.session_state.user['id']
                             }
                             
@@ -2782,9 +2781,7 @@ def chauffeur_page():
     # ============================================
     unread_count = get_unread_count(st.session_state.user['id'])
     
-    # ============================================
     # SON DE NOTIFICATION - BIP GRAVE (CORRIGÉ)
-    # ============================================
     if unread_count > 0:
         # Initialiser le compteur si nécessaire
         if 'last_notif_count' not in st.session_state:
@@ -2792,51 +2789,28 @@ def chauffeur_page():
         
         # Si nouvelles notifications
         if unread_count > st.session_state.last_notif_count:
+            # Jouer son (HTML) une seule fois quand le nombre augmente
             st.markdown("""
                 <audio id="notif-sound" autoplay>
-                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
+                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqF" type="audio/wav">
                 </audio>
                 <script>
-                    const audio = document.getElementById('notif-sound');
-                    let playCount = 0;
-                    const maxPlays = 10;  // Nombre de répétitions (~2-3 secondes)
-                    
-                    function playNextBeep() {
-                        if (playCount < maxPlays) {
-                            audio.currentTime = 0;
-                            audio.play();
-                            playCount++;
-                            setTimeout(playNextBeep, 300);  // Rejouer toutes les 300ms
-                        }
-                    }
-                    
-                    playNextBeep();
-                    
-                    console.log('🔊 10 bips programmés');
+                    try {
+                        const audio = document.getElementById('notif-sound');
+                        audio.play().catch(()=>{console.log('audio play blocked')});
+                    } catch(e) { console.log(e); }
                 </script>
             """, unsafe_allow_html=True)
             st.session_state.last_notif_count = unread_count
-    else:
-        # CORRECTION : Réinitialiser quand plus de notifications
-        st.session_state.last_notif_count = 0
-
-    if unread_count > 0:
+        
         # Badge de notification
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #FF4444 0%, #CC0000 100%); 
                     color: white; padding: 15px 25px; 
                     border-radius: 30px; display: inline-block; font-weight: bold;
-                    margin-bottom: 20px; animation: pulse 2s infinite;
-                    box-shadow: 0 4px 15px rgba(255,68,68,0.4);">
+                    margin-bottom: 20px; box-shadow: 0 4px 15px rgba(255,68,68,0.4);">
             🔔 {unread_count} nouvelle(s) notification(s) !
         </div>
-        <style>
-        @keyframes pulse {{{{
-            0% {{{{ opacity: 1; transform: scale(1); }}}}
-            50% {{{{ opacity: 0.8; transform: scale(1.05); }}}}
-            100% {{{{ opacity: 1; transform: scale(1); }}}}
-        }}}}
-        </style>
         """, unsafe_allow_html=True)
         
         # Liste des notifications
@@ -2849,52 +2823,55 @@ def chauffeur_page():
                     'modification': '✏️',
                     'changement_chauffeur': '🔄',
                     'annulation': '❌'
-                }.get(notif['type'], '📢')
+                }.get(notif.get('type'), '📢')
                 
-                st.info(f"{icon} **{notif['message']}**")
+                st.info(f"{icon} **{notif.get('message', '')}**")
                 
                 if notif.get('nom_client'):
                     heure = notif.get('heure_pec_prevue', 'N/A')
-                    st.caption(f"👤 {notif['nom_client']} | ⏰ {heure}")
+                    st.caption(f"👤 {notif.get('nom_client')} | ⏰ {heure}")
                     st.caption(f"📍 {notif.get('adresse_pec', 'N/A')} → {notif.get('lieu_depose', 'N/A')}")
             
             if st.button("✅ Marquer tout comme lu", use_container_width=True):
                 mark_notifications_as_read(st.session_state.user['id'])
                 st.session_state.notification_sound_played = False
                 st.rerun()
-    
+    else:
+        # CORRECTION : Réinitialiser quand plus de notifications
+        st.session_state.last_notif_count = 0
+
     with col_deconnexion:
         if st.button("🚪 Déconnexion"):
             if "user" in st.session_state:
                 del st.session_state.user
             st.rerun()
-
+    
     with col_refresh:
         if st.button("🔄 Actualiser (auto: 30s)", use_container_width=True):
             st.rerun()
-    
-    st.markdown("---")
-    
-    # Filtres
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        show_all_chauff = st.checkbox("Toutes mes courses", value=False)
-        if not show_all_chauff:
-            date_filter = st.date_input("Date", value=datetime.now())
-        else:
-            date_filter = None
-    
-    date_filter_str = None
-    if not show_all_chauff and date_filter:
-        date_filter_str = date_filter.strftime('%Y-%m-%d')
-    
-    # Récupérer les courses DU CHAUFFEUR avec role='chauffeur' pour filtrer visible_chauffeur
-    courses = get_courses(chauffeur_id=st.session_state.user['id'], date_filter=date_filter_str, role='chauffeur')
-    
-    with col2:
-        st.metric("Mes courses", len([c for c in courses if c['statut'] != 'deposee']))
-    with col3:
-        st.metric("Terminées", len([c for c in courses if c['statut'] == 'deposee']))
+        
+        st.markdown("---")
+        
+        # Filtres
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            show_all_chauff = st.checkbox("Toutes mes courses", value=False)
+            if not show_all_chauff:
+                date_filter = st.date_input("Date", value=datetime.now())
+            else:
+                date_filter = None
+        
+        date_filter_str = None
+        if not show_all_chauff and date_filter:
+            date_filter_str = date_filter.strftime('%Y-%m-%d')
+        
+        # Récupérer les courses DU CHAUFFEUR avec role='chauffeur' pour filtrer visible_chauffeur
+        courses = get_courses(chauffeur_id=st.session_state.user['id'], date_filter=date_filter_str, role='chauffeur')
+        
+        with col2:
+            st.metric("Mes courses", len([c for c in courses if c.get('statut') != 'deposee']))
+        with col3:
+            st.metric("Terminées", len([c for c in courses if c.get('statut') == 'deposee']))
     
     if not courses:
         st.info("Aucune course")
@@ -2916,13 +2893,13 @@ def chauffeur_page():
             
             date_fr = format_date_fr(course['heure_prevue'])
             heure_affichage = course.get('heure_pec_prevue', extract_time_str(course['heure_prevue']))
-            titre = f"{statut_colors.get(course['statut'], '⚪')} {date_fr} {heure_affichage} - {course['nom_client']} - {statut_text.get(course['statut'], course['statut'].upper())}"
+            titre = f"{statut_colors.get(course.get('statut'), '⚪')} {date_fr} {heure_affichage} - {course['nom_client']} - {statut_text.get(course.get('statut'), str(course.get('statut', '')).upper())}"
             
             with st.expander(titre):
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write(f"**Client :** {course['nom_client']}")
-                    st.write(f"**Tel :** {course['telephone_client']}")
+                    st.write(f"**Tel :** {course.get('telephone_client')}")
                     st.write(f"**📅 Date :** {date_fr}")
                     
                     if course.get('heure_pec_prevue'):
@@ -2930,20 +2907,20 @@ def chauffeur_page():
                     st.write(f"**PEC :** {course['adresse_pec']}")
                 
                 with col2:
-                    st.write(f"**Dépose :** {course['lieu_depose']}")
-                    st.write(f"**Type :** {course['type_course']}")
-                    st.write(f"**Tarif :** {course['tarif_estime']}€")
-                    st.write(f"**Km :** {course['km_estime']} km")
+                    st.write(f"**Dépose :** {course.get('lieu_depose')}")
+                    st.write(f"**Type :** {course.get('type_course')}")
+                    st.write(f"**Tarif :** {course.get('tarif_estime', 0)}€")
+                    st.write(f"**Km :** {course.get('km_estime', 0)} km")
                 
-                if course['date_confirmation']:
+                if course.get('date_confirmation'):
                     st.caption(f"✅ Confirmée : {format_datetime_fr(course['date_confirmation'])}")
-                if course['date_pec']:
+                if course.get('date_pec'):
                     st.info(f"📍 **PEC : {extract_time_str(course['date_pec'])}**")
-                if course['date_depose']:
+                if course.get('date_depose'):
                     st.caption(f"🏁 Déposée : {format_datetime_fr(course['date_depose'])}")
                 
-                if course['commentaire']:
-                    st.info(f"💬 **Secrétaire :** {course['commentaire']}")
+                if course.get('commentaire'):
+                    st.info(f"💬 **Secrétaire :** {course.get('commentaire')}")
                 
                 # ============================================
                 # COMMENTAIRE CHAUFFEUR - OPTIMISÉ
@@ -2973,31 +2950,31 @@ def chauffeur_page():
                 # ============================================
                 col1, col2, col3, col4 = st.columns(4)
                 
-                if course['statut'] == 'nouvelle':
+                if course.get('statut') == 'nouvelle':
                     with col1:
                         # OPTIMISATION: Rerun immédiat sans message
                         if st.button("✅ Confirmer", key=f"confirm_{course['id']}", use_container_width=True):
                             update_course_status(course['id'], 'confirmee')
                             st.rerun()
                 
-                elif course['statut'] == 'confirmee':
+                elif course.get('statut') == 'confirmee':
                     with col2:
                         # OPTIMISATION: Rerun immédiat sans message
                         if st.button("📍 PEC", key=f"pec_{course['id']}", use_container_width=True):
                             update_course_status(course['id'], 'pec')
                             st.rerun()
                 
-                elif course['statut'] == 'pec':
+                elif course.get('statut') == 'pec':
                     st.markdown("---")
                     st.markdown("**📊 Mise à jour Km & Tarif**")
-
+    
                     col_km, col_tarif = st.columns(2)
                     with col_km:
                         km_reel = st.number_input(
                             "Km réels", 
                             min_value=0.0, 
                             step=1.0, 
-                            value=float(course['km_estime']),
+                            value=float(course.get('km_estime', 0)),
                             key=f"km_{course['id']}"
                         )
                     with col_tarif:
@@ -3005,17 +2982,17 @@ def chauffeur_page():
                             "Tarif réel (€)", 
                             min_value=0.0, 
                             step=1.0, 
-                            value=float(course['tarif_estime']),
+                            value=float(course.get('tarif_estime', 0)),
                             key=f"tarif_{course['id']}"
                         )
-
+    
                     st.markdown("---")
-
+    
                     if st.button("🏁 Déposé", key=f"depose_{course['id']}", use_container_width=True):
                         update_course_status(course['id'], 'deposee', km_reel, tarif_reel)
                         st.rerun()
                 
-                elif course['statut'] == 'deposee':
+                elif course.get('statut') == 'deposee':
                     st.success("✅ Course terminée")
 
 
