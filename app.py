@@ -2791,38 +2791,36 @@ def chauffeur_page():
             st.session_state.last_notif_count = 0
         
         # Si nouvelles notifications
-        # Si nouvelles notifications
-        # Si nouvelles notifications
-if unread_count > st.session_state.last_notif_count:
-            st.markdown("""
-                <audio id="notif-sound" autoplay>
-                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
-                </audio>
-                <script>
-                    const audio = document.getElementById('notif-sound');
-                    let playCount = 0;
-                    const maxPlays = 10;  // Nombre de répétitions (~2-3 secondes)
-                    
-                    function playNextBeep() {
-                        if (playCount < maxPlays) {
-                            audio.currentTime = 0;
-                            audio.play();
-                            playCount++;
-                            setTimeout(playNextBeep, 300);  // Rejouer toutes les 300ms
+        if unread_count > st.session_state.last_notif_count:
+                st.markdown("""
+                    <audio id="notif-sound" autoplay>
+                        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
+                    </audio>
+                    <script>
+                        const audio = document.getElementById('notif-sound');
+                        let playCount = 0;
+                        const maxPlays = 10;  // Nombre de répétitions (~2-3 secondes)
+                        
+                        function playNextBeep() {
+                            if (playCount < maxPlays) {
+                                audio.currentTime = 0;
+                                audio.play();
+                                playCount++;
+                                setTimeout(playNextBeep, 300);  // Rejouer toutes les 300ms
+                            }
                         }
-                    }
-                    
-                    playNextBeep();
-                    
-                    console.log('🔊 10 bips programmés');
-                </script>
-            """, unsafe_allow_html=True)
-            st.session_state.last_notif_count = unread_count
-    
-    # Optionnel: Forcer un rerun pour actualiser l'affichage
-else:
-        # CORRECTION : Réinitialiser quand plus de notifications
-        st.session_state.last_notif_count = 0
+                        
+                        playNextBeep();
+                        
+                        console.log('🔊 10 bips programmés');
+                    </script>
+                """, unsafe_allow_html=True)
+                st.session_state.last_notif_count = unread_count
+        
+        # Optionnel: Forcer un rerun pour actualiser l'affichage
+    else:
+            # CORRECTION : Réinitialiser quand plus de notifications
+            st.session_state.last_notif_count = 0
 
 if unread_count > 0:
         # Badge de notification
