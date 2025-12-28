@@ -2867,37 +2867,37 @@ if unread_count > 0:
     
     
     
-with col_deconnexion:
-    if st.button("🚪 Déconnexion"):
-        if "user" in st.session_state:
-            del st.session_state.user
-        st.rerun()
-
-with col_refresh:
-    if st.button("🔄 Actualiser (auto: 30s)", use_container_width=True):
-        st.rerun()
+    with col_deconnexion:
+        if st.button("🚪 Déconnexion"):
+            if "user" in st.session_state:
+                del st.session_state.user
+            st.rerun()
     
-    st.markdown("---")
-    
-    # Filtres
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        show_all_chauff = st.checkbox("Toutes mes courses", value=False)
-        if not show_all_chauff:
-            date_filter = st.date_input("Date", value=datetime.now())
-        else:
-            date_filter = None
-    
-    date_filter_str = None
-    if not show_all_chauff and date_filter:
-        date_filter_str = date_filter.strftime('%Y-%m-%d')
-    
-    # Récupérer les courses DU CHAUFFEUR avec role='chauffeur' pour filtrer visible_chauffeur
-    courses = get_courses(chauffeur_id=st.session_state.user['id'], date_filter=date_filter_str, role='chauffeur')
-    
-    with col2:
-        st.metric("Mes courses", len([c for c in courses if c['statut'] != 'deposee']))
-    with col3:
+    with col_refresh:
+        if st.button("🔄 Actualiser (auto: 30s)", use_container_width=True):
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # Filtres
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            show_all_chauff = st.checkbox("Toutes mes courses", value=False)
+            if not show_all_chauff:
+                date_filter = st.date_input("Date", value=datetime.now())
+            else:
+                date_filter = None
+        
+        date_filter_str = None
+        if not show_all_chauff and date_filter:
+            date_filter_str = date_filter.strftime('%Y-%m-%d')
+        
+        # Récupérer les courses DU CHAUFFEUR avec role='chauffeur' pour filtrer visible_chauffeur
+        courses = get_courses(chauffeur_id=st.session_state.user['id'], date_filter=date_filter_str, role='chauffeur')
+        
+        with col2:
+            st.metric("Mes courses", len([c for c in courses if c['statut'] != 'deposee']))
+        with col3:
         st.metric("Terminées", len([c for c in courses if c['statut'] == 'deposee']))
     
     if not courses:
