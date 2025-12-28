@@ -2791,21 +2791,57 @@ def chauffeur_page():
             st.session_state.last_notif_count = 0
         
         # Si nouvelles notifications
+        # Si nouvelles notifications
         if unread_count > st.session_state.last_notif_count:
             st.markdown("""
-                <audio id="notif-sound" autoplay>
-                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
-                </audio>
                 <script>
-                    const audio = document.getElementById('notif-sound');
-                    let playCount = 0;
-                    
-                    audio.addEventListener('ended', function() {
-                        playCount++;
-                        if (playCount < 3) {
-                            setTimeout(() => audio.play(), 200);
+                    // Fonction pour afficher notification native
+                    function showNotification() {
+                        if (Notification.permission === "granted") {
+                            // Notification 1
+                            new Notification("🚖 Nouvelle course !", {
+                                body: "Vous avez une nouvelle mission",
+                                icon: "https://em-content.zobj.net/thumbs/120/apple/354/taxi_1f695.png",
+                                vibrate: [300, 200, 300],
+                                tag: 'course-notification',
+                                requireInteraction: false
+                            });
+                            
+                            // Notification 2 (après 500ms)
+                            setTimeout(() => {
+                                new Notification("🚖 Nouvelle course !", {
+                                    body: "Vous avez une nouvelle mission",
+                                    vibrate: [300],
+                                    tag: 'course-notification-2',
+                                    requireInteraction: false
+                                });
+                            }, 500);
+                            
+                            // Notification 3 (après 1000ms)
+                            setTimeout(() => {
+                                new Notification("🚖 Nouvelle course !", {
+                                    body: "Vous avez une nouvelle mission",
+                                    vibrate: [300],
+                                    tag: 'course-notification-3',
+                                    requireInteraction: false
+                                });
+                            }, 1000);
+                            
+                            console.log('🔔 3 notifications natives envoyées');
+                            
+                        } else if (Notification.permission !== "denied") {
+                            // Demander permission
+                            Notification.requestPermission().then(permission => {
+                                if (permission === "granted") {
+                                    showNotification();
+                                }
+                            });
+                        } else {
+                            console.log('❌ Notifications bloquées par utilisateur');
                         }
-                    });
+                    }
+                    
+                    showNotification();
                 </script>
             """, unsafe_allow_html=True)
             st.session_state.last_notif_count = unread_count
