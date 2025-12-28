@@ -2782,7 +2782,7 @@ def chauffeur_page():
     # ============================================
     unread_count = get_unread_count(st.session_state.user['id'])
     
-# ============================================
+    # ============================================
     # SON DE NOTIFICATION - BIP GRAVE (CORRIGÉ)
     # ============================================
     if unread_count > 0:
@@ -2792,37 +2792,35 @@ def chauffeur_page():
         
         # Si nouvelles notifications
         if unread_count > st.session_state.last_notif_count:
-                st.markdown("""
-                    <audio id="notif-sound" autoplay>
-                        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
-                    </audio>
-                    <script>
-                        const audio = document.getElementById('notif-sound');
-                        let playCount = 0;
-                        const maxPlays = 10;  // Nombre de répétitions (~2-3 secondes)
-                        
-                        function playNextBeep() {
-                            if (playCount < maxPlays) {
-                                audio.currentTime = 0;
-                                audio.play();
-                                playCount++;
-                                setTimeout(playNextBeep, 300);  // Rejouer toutes les 300ms
-                            }
+            st.markdown("""
+                <audio id="notif-sound" autoplay>
+                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
+                </audio>
+                <script>
+                    const audio = document.getElementById('notif-sound');
+                    let playCount = 0;
+                    const maxPlays = 10;  // Nombre de répétitions (~2-3 secondes)
+                    
+                    function playNextBeep() {
+                        if (playCount < maxPlays) {
+                            audio.currentTime = 0;
+                            audio.play();
+                            playCount++;
+                            setTimeout(playNextBeep, 300);  // Rejouer toutes les 300ms
                         }
-                        
-                        playNextBeep();
-                        
-                        console.log('🔊 10 bips programmés');
-                    </script>
-                """, unsafe_allow_html=True)
-                st.session_state.last_notif_count = unread_count
-        
-            # Optionnel: Forcer un rerun pour actualiser l'affichage
+                    }
+                    
+                    playNextBeep();
+                    
+                    console.log('🔊 10 bips programmés');
+                </script>
+            """, unsafe_allow_html=True)
+            st.session_state.last_notif_count = unread_count
     else:
         # CORRECTION : Réinitialiser quand plus de notifications
         st.session_state.last_notif_count = 0
 
-if unread_count > 0:
+    if unread_count > 0:
         # Badge de notification
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #FF4444 0%, #CC0000 100%); 
@@ -2865,39 +2863,37 @@ if unread_count > 0:
                 st.session_state.notification_sound_played = False
                 st.rerun()
     
-    
-    
     with col_deconnexion:
         if st.button("🚪 Déconnexion"):
             if "user" in st.session_state:
                 del st.session_state.user
             st.rerun()
-    
+
     with col_refresh:
         if st.button("🔄 Actualiser (auto: 30s)", use_container_width=True):
             st.rerun()
-        
-        st.markdown("---")
-        
-        # Filtres
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col1:
-            show_all_chauff = st.checkbox("Toutes mes courses", value=False)
-            if not show_all_chauff:
-                date_filter = st.date_input("Date", value=datetime.now())
-            else:
-                date_filter = None
-        
-        date_filter_str = None
-        if not show_all_chauff and date_filter:
-            date_filter_str = date_filter.strftime('%Y-%m-%d')
-        
-        # Récupérer les courses DU CHAUFFEUR avec role='chauffeur' pour filtrer visible_chauffeur
-        courses = get_courses(chauffeur_id=st.session_state.user['id'], date_filter=date_filter_str, role='chauffeur')
-        
-        with col2:
-            st.metric("Mes courses", len([c for c in courses if c['statut'] != 'deposee']))
-        with col3:
+    
+    st.markdown("---")
+    
+    # Filtres
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        show_all_chauff = st.checkbox("Toutes mes courses", value=False)
+        if not show_all_chauff:
+            date_filter = st.date_input("Date", value=datetime.now())
+        else:
+            date_filter = None
+    
+    date_filter_str = None
+    if not show_all_chauff and date_filter:
+        date_filter_str = date_filter.strftime('%Y-%m-%d')
+    
+    # Récupérer les courses DU CHAUFFEUR avec role='chauffeur' pour filtrer visible_chauffeur
+    courses = get_courses(chauffeur_id=st.session_state.user['id'], date_filter=date_filter_str, role='chauffeur')
+    
+    with col2:
+        st.metric("Mes courses", len([c for c in courses if c['statut'] != 'deposee']))
+    with col3:
         st.metric("Terminées", len([c for c in courses if c['statut'] == 'deposee']))
     
     if not courses:
@@ -2992,32 +2988,32 @@ if unread_count > 0:
                             st.rerun()
                 
                 elif course['statut'] == 'pec':
-                        st.markdown("---")
-                        st.markdown("**📊 Mise à jour Km & Tarif**")
-    
-                        col_km, col_tarif = st.columns(2)
-                        with col_km:
-                            km_reel = st.number_input(
-                                "Km réels", 
-                                min_value=0.0, 
-                                step=1.0, 
-                                value=float(course['km_estime']),
-                                key=f"km_{course['id']}"
-                            )
-                        with col_tarif:
-                            tarif_reel = st.number_input(
-                                "Tarif réel (€)", 
-                                min_value=0.0, 
-                                step=1.0, 
-                                value=float(course['tarif_estime']),
-                                key=f"tarif_{course['id']}"
+                    st.markdown("---")
+                    st.markdown("**📊 Mise à jour Km & Tarif**")
+
+                    col_km, col_tarif = st.columns(2)
+                    with col_km:
+                        km_reel = st.number_input(
+                            "Km réels", 
+                            min_value=0.0, 
+                            step=1.0, 
+                            value=float(course['km_estime']),
+                            key=f"km_{course['id']}"
                         )
-    
-                        st.markdown("---")
-    
-                        if st.button("🏁 Déposé", key=f"depose_{course['id']}", use_container_width=True):
-                            update_course_status(course['id'], 'deposee', km_reel, tarif_reel)
-                            st.rerun()
+                    with col_tarif:
+                        tarif_reel = st.number_input(
+                            "Tarif réel (€)", 
+                            min_value=0.0, 
+                            step=1.0, 
+                            value=float(course['tarif_estime']),
+                            key=f"tarif_{course['id']}"
+                        )
+
+                    st.markdown("---")
+
+                    if st.button("🏁 Déposé", key=f"depose_{course['id']}", use_container_width=True):
+                        update_course_status(course['id'], 'deposee', km_reel, tarif_reel)
+                        st.rerun()
                 
                 elif course['statut'] == 'deposee':
                     st.success("✅ Course terminée")
