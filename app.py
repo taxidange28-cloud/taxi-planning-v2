@@ -2869,15 +2869,15 @@ if unread_count > 0:
     
     
     
-    with col_deconnexion:
-        if st.button("🚪 Déconnexion"):
-            if "user" in st.session_state:
-                del st.session_state.user
-            st.rerun()
-    
-    with col_refresh:
-        if st.button("🔄 Actualiser (auto: 30s)", use_container_width=True):
-            st.rerun()
+with col_deconnexion:
+    if st.button("🚪 Déconnexion"):
+        if "user" in st.session_state:
+            del st.session_state.user
+        st.rerun()
+
+with col_refresh:
+    if st.button("🔄 Actualiser (auto: 30s)", use_container_width=True):
+        st.rerun()
     
     st.markdown("---")
     
