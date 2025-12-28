@@ -2803,8 +2803,8 @@ def chauffeur_page():
                     
                     audio.addEventListener('ended', function() {
                         playCount++;
-                        if (playCount < 3) {
-                            setTimeout(() => audio.play(), 200);
+                        if (playCount < 15) {  // 15 répétitions = ~3 secondes
+                            setTimeout(() => audio.play(), 50);  // 50ms entre chaque
                         }
                     });
                 </script>
