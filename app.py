@@ -2820,7 +2820,7 @@ def chauffeur_page():
             # Optionnel: Forcer un rerun pour actualiser l'affichage
         else:
             # CORRECTION : Réinitialiser quand plus de notifications
-                st.session_state.last_notif_count = 0
+            st.session_state.last_notif_count = 0
 
 if unread_count > 0:
         # Badge de notification
