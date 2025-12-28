@@ -2996,7 +2996,7 @@ def chauffeur_page():
                                 key=f"km_{course['id']}"
                             )
                         with col_tarif:
-                        tarif_reel = st.number_input(
+                            tarif_reel = st.number_input(
                                 "Tarif réel (€)", 
                                 min_value=0.0, 
                                 step=1.0, 
