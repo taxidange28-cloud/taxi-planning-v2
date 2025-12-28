@@ -2794,39 +2794,19 @@ def chauffeur_page():
         # Si nouvelles notifications
         if unread_count > st.session_state.last_notif_count:
             st.markdown("""
+                <audio id="notif-sound" autoplay>
+                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
+                </audio>
                 <script>
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const audio = document.getElementById('notif-sound');
+                    let playCount = 0;
                     
-                    // Fonction pour jouer UN bip
-                    function playBeep(startTime) {
-                        const oscillator = audioContext.createOscillator();
-                        const gainNode = audioContext.createGain();
-                        
-                        oscillator.type = 'sine';
-                        oscillator.frequency.setValueAtTime(200, startTime);
-                        
-                        gainNode.gain.setValueAtTime(0.5, startTime);
-                        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
-                        
-                        oscillator.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        
-                        oscillator.start(startTime);
-                        oscillator.stop(startTime + 0.3);
-                    }
-                    
-                    // VIBRATION en plus (si supporté)
-                    if (navigator.vibrate) {
-                        navigator.vibrate([300, 200, 300, 200, 300]);
-                    }
-                    
-                    // Jouer 3 bips espacés
-                    const now = audioContext.currentTime;
-                    playBeep(now);           // Bip 1
-                    playBeep(now + 0.5);     // Bip 2
-                    playBeep(now + 1.0);     // Bip 3
-                    
-                    console.log('🔊 3 bips + vibration');
+                    audio.addEventListener('ended', function() {
+                        playCount++;
+                        if (playCount < 3) {
+                            setTimeout(() => audio.play(), 200);
+                        }
+                    });
                 </script>
             """, unsafe_allow_html=True)
             st.session_state.last_notif_count = unread_count
