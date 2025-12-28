@@ -2824,7 +2824,7 @@ else:
         # CORRECTION : Réinitialiser quand plus de notifications
         st.session_state.last_notif_count = 0
 
-    if unread_count > 0:
+if unread_count > 0:
         # Badge de notification
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #FF4444 0%, #CC0000 100%); 
