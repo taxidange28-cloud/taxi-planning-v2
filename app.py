@@ -914,14 +914,57 @@ def purge_week_courses(week_start_date):
 # MISE À JOUR DES STATUTS - OPTIMISÉE
 # ============================================
 
-def update_course_status(course_id, new_status):
+def update_course_status(course_id, new_status, km_reels=None, tarif_reel=None):
     """
-    Met à jour le statut d'une course
-    OPTIMISATION: Commit immédiat + fermeture rapide de la connexion
+    Met à jour le statut d'une course + km et tarif si fournis
     """
     conn = get_db_connection()
     if not conn:
         return False
+    
+    cursor = conn.cursor()
+    
+    now_paris = datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
+    
+    timestamp_field = {
+        'confirmee': 'date_confirmation',
+        'pec': 'date_pec',
+        'deposee': 'date_depose'
+    }
+    
+    # Si km et tarif fournis, les mettre à jour aussi
+    if km_reels is not None and tarif_reel is not None:
+        if new_status in timestamp_field:
+            cursor.execute(f'''
+                UPDATE courses
+                SET statut = %s, {timestamp_field[new_status]} = %s,
+                    km_estime = %s, tarif_estime = %s
+                WHERE id = %s
+            ''', (new_status, now_paris, km_reels, tarif_reel, course_id))
+        else:
+            cursor.execute('''
+                UPDATE courses
+                SET statut = %s, km_estime = %s, tarif_estime = %s
+                WHERE id = %s
+            ''', (new_status, km_reels, tarif_reel, course_id))
+    else:
+        # Comportement normal sans modification km/tarif
+        if new_status in timestamp_field:
+            cursor.execute(f'''
+                UPDATE courses
+                SET statut = %s, {timestamp_field[new_status]} = %s
+                WHERE id = %s
+            ''', (new_status, now_paris, course_id))
+        else:
+            cursor.execute('''
+                UPDATE courses
+                SET statut = %s
+                WHERE id = %s
+            ''', (new_status, course_id))
+    
+    conn.commit()
+    release_db_connection(conn)
+    return True
     
     cursor = conn.cursor()
     
@@ -2940,11 +2983,33 @@ def chauffeur_page():
                             st.rerun()
                 
                 elif course['statut'] == 'pec':
-                    with col3:
-                        # OPTIMISATION: Rerun immédiat sans message
-                        if st.button("🏁 Déposé", key=f"depose_{course['id']}", use_container_width=True):
-                            update_course_status(course['id'], 'deposee')
-                            st.rerun()
+    st.markdown("---")
+    st.markdown("**📊 Mise à jour Km & Tarif**")
+    
+    col_km, col_tarif = st.columns(2)
+    with col_km:
+        km_reel = st.number_input(
+            "Km réels", 
+            min_value=0.0, 
+            step=1.0, 
+            value=float(course['km_estime']),
+            key=f"km_{course['id']}"
+        )
+    with col_tarif:
+        tarif_reel = st.number_input(
+            "Tarif réel (€)", 
+            min_value=0.0, 
+            step=1.0, 
+            value=float(course['tarif_estime']),
+            key=f"tarif_{course['id']}"
+        )
+    
+    st.markdown("---")
+    
+    with col3:
+        if st.button("🏁 Déposé", key=f"depose_{course['id']}", use_container_width=True):
+            update_course_status(course['id'], 'deposee', km_reel, tarif_reel)
+            st.rerun()
                 
                 elif course['statut'] == 'deposee':
                     st.success("✅ Course terminée")
