@@ -2982,19 +2982,19 @@ def chauffeur_page():
                             update_course_status(course['id'], 'pec')
                             st.rerun()
                 
-                elif course['statut'] == 'pec':
-    st.markdown("---")
-    st.markdown("**📊 Mise à jour Km & Tarif**")
+elif course['statut'] == 'pec':
+        st.markdown("---")
+        st.markdown("**📊 Mise à jour Km & Tarif**")
     
-    col_km, col_tarif = st.columns(2)
-    with col_km:
-        km_reel = st.number_input(
-            "Km réels", 
-            min_value=0.0, 
-            step=1.0, 
-            value=float(course['km_estime']),
-            key=f"km_{course['id']}"
-        )
+        col_km, col_tarif = st.columns(2)
+        with col_km:
+            km_reel = st.number_input(
+                "Km réels", 
+                min_value=0.0, 
+                step=1.0, 
+                value=float(course['km_estime']),
+                key=f"km_{course['id']}"
+            )
     with col_tarif:
         tarif_reel = st.number_input(
             "Tarif réel (€)", 
@@ -3006,10 +3006,9 @@ def chauffeur_page():
     
     st.markdown("---")
     
-    with col3:
-        if st.button("🏁 Déposé", key=f"depose_{course['id']}", use_container_width=True):
-            update_course_status(course['id'], 'deposee', km_reel, tarif_reel)
-            st.rerun()
+    if st.button("🏁 Déposé", key=f"depose_{course['id']}", use_container_width=True):
+        update_course_status(course['id'], 'deposee', km_reel, tarif_reel)
+        st.rerun()
                 
                 elif course['statut'] == 'deposee':
                     st.success("✅ Course terminée")
