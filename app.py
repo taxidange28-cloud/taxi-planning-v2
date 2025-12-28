@@ -2851,7 +2851,7 @@ if unread_count > st.session_state.last_notif_count:
     st.session_state.last_notif_count = unread_count
     
     # Optionnel: Forcer un rerun pour actualiser l'affichage
-    else:
+else:
         # CORRECTION : Réinitialiser quand plus de notifications
         st.session_state.last_notif_count = 0
 
