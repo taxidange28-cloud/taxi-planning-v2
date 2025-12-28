@@ -2794,61 +2794,30 @@ def chauffeur_page():
         # Si nouvelles notifications
         # Si nouvelles notifications
 if unread_count > st.session_state.last_notif_count:
-    # SON COURT ET OPTIMISÉ (bip unique de 300ms)
-    audio_html = """
-    <audio id="notif-sound">
-        <source src="data:audio/wav;base64,UklGRlwAAABXQVZFZm10IBAAAAABAAEARKwAABCxAgAABAAgAZGF0YVgAAAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8=" type="audio/wav">
-    </audio>
-    <script>
-        // Version améliorée avec un seul bip clair
-        const audio = document.getElementById('notif-sound');
-        
-        // Essayer de jouer immédiatement
-        audio.play().catch(error => {
-            // Si autoplay est bloqué, on ne fait rien
-            console.log('Son de notification (optionnel)');
-        });
-        
-        // Animation visuelle pour compenser si le son ne joue pas
-        const bell = document.createElement('div');
-        bell.innerHTML = '🔔';
-        bell.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            font-size: 24px;
-            animation: pulse 0.5s ease-in-out 3;
-            z-index: 9999;
-        `;
-        
-        // Ajouter l'animation CSS
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes pulse {
-                0% { transform: scale(1); opacity: 1; }
-                50% { transform: scale(1.2); opacity: 0.8; }
-                100% { transform: scale(1); opacity: 1; }
-            }
-        `;
-        document.head.appendChild(style);
-        document.body.appendChild(bell);
-        
-        // Retirer l'animation après 2 secondes
-        setTimeout(() => {
-            bell.remove();
-        }, 2000);
-        
-    </script>
-    """
-    
-    # Afficher la notification sonore ET visuelle
-    st.markdown(audio_html, unsafe_allow_html=True)
-    
-    # Ajouter aussi une alerte Streamlit (visuelle)
-    st.toast(f"📨 {unread_count} nouvelle(s) notification(s)", icon="🔔")
-    
-    # Mettre à jour le compteur
-    st.session_state.last_notif_count = unread_count
+            st.markdown("""
+                <audio id="notif-sound" autoplay>
+                    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzKH0fPTgjMGHm7A7+OZUA0PVqzn77BdGAg+ltryxnMpBSl+zPDZizcIG2i76+WdTgwOUKXi8LdjHQU5kdXyzHksBSh4x/DdkUELFGC06OyoVRUKRp/g8r5sIQcyh9Hx04IzBx5uwO/jmFANEFar5e+wXBgJP5bZ8sh0KgYpfsrw2ok3BxxovOvknU4MDlCl4fC4Yx0FOZHU8sx5KwQneMfw3ZFCCxNftOjsqFUVCkaf4PK+bCEHMofR8dOCMwcebbvv4phQDRBWq+XvsFwXCUCV2fLIdCoGKX7K79qJNwccZ7zr5J1ODAtPpOHwuGIdBTiR1fHMeSsEJ3fH792RQgoUXrTp7KlVFApGnt/yv2wiBzKH0fLTgzQIHmy77+KYTw0PVqzl765cFwlAldny" type="audio/wav">
+                </audio>
+                <script>
+                    const audio = document.getElementById('notif-sound');
+                    let playCount = 0;
+                    const maxPlays = 10;  // Nombre de répétitions (~2-3 secondes)
+                    
+                    function playNextBeep() {
+                        if (playCount < maxPlays) {
+                            audio.currentTime = 0;
+                            audio.play();
+                            playCount++;
+                            setTimeout(playNextBeep, 300);  // Rejouer toutes les 300ms
+                        }
+                    }
+                    
+                    playNextBeep();
+                    
+                    console.log('🔊 10 bips programmés');
+                </script>
+            """, unsafe_allow_html=True)
+            st.session_state.last_notif_count = unread_count
     
     # Optionnel: Forcer un rerun pour actualiser l'affichage
 else:
