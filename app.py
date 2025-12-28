@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -2733,38 +2732,7 @@ def chauffeur_page():
     # SYSTÈME DE NOTIFICATIONS
     # ============================================
     unread_count = get_unread_count(st.session_state.user['id'])
-    # ============================================
-# SON DE NOTIFICATION - BIP GRAVE
-# ============================================
-    if unread_count > 0 and not st.session_state.get('notification_sound_played', False):
-        components.html("""
-            <script>
-            // Créer le contexte audio
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // Créer oscillateur pour bip grave
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            // Bip grave 200Hz
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
-            
-            // Volume
-            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.8);
-            
-            // Connecter et jouer
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.8);
-            
-            console.log('🔊 Bip notification joué');
-        </script>
-    """, height=0)
     
-    st.session_state.notification_sound_played = True
     if unread_count > 0:
         # Badge de notification
         st.markdown(f"""
