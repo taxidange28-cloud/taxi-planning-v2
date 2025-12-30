@@ -421,11 +421,17 @@ def extract_time_str(datetime_input):
         return datetime_str[11:16]
     return ""
 
-def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, limit=100):
+def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, limit=100, show_all=False):
+    """
+    Récupère les courses
+    Si show_all=True, récupère TOUTES les courses sans filtre de date
+    """
     conn = get_db_connection()
     if not conn:
         return []
+
     cursor = conn.cursor()
+
     query = '''
         SELECT c.*, u.full_name as chauffeur_name
         FROM courses c
@@ -433,45 +439,52 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
         WHERE 1=1
     '''
     params = []
+
     try:
-        if date_filter:
-            if isinstance(date_filter, datetime):
-                param_date = date_filter.date().strftime('%Y-%m-%d')
-            else:
-                s = str(date_filter).strip()
-                s = s.replace('/', '-').replace('T', ' ')
-                try:
-                    dt = datetime.fromisoformat(s)
-                    param_date = dt.date().strftime('%Y-%m-%d')
-                except Exception:
-                    param_date = s[0:10]
-            query += " AND DATE(c.heure_prevue) = CAST(%s AS date)"
-            params.append(param_date)
-        else:
-            if days_back >= 3000:
-                pass
-            else:
-                date_limite = (datetime.now(TIMEZONE) - timedelta(days=days_back)).date()
-                param_date = date_limite. strftime("%Y-%m-%d")
-                query += " AND DATE(c.heure_prevue) >= CAST(%s AS date)"
+        # ✅ SI show_all=True → AUCUN filtre de date
+        if not show_all:
+            if date_filter:
+                if isinstance(date_filter, datetime):
+                    param_date = date_filter.date().strftime('%Y-%m-%d')
+                else:
+                    s = str(date_filter).strip()
+                    s = s.replace('/', '-').replace('T', ' ')
+                    try:
+                        dt = datetime.fromisoformat(s)
+                        param_date = dt.date().strftime('%Y-%m-%d')
+                    except Exception:
+                        param_date = s[0:10]
+                query += " AND DATE(c.heure_prevue) = CAST(%s AS date)"
                 params.append(param_date)
+            else:
+                # Filtre par days_back seulement si show_all=False
+                date_limite = (datetime.now(TIMEZONE) - timedelta(days=days_back)).date()
+                param_date = date_limite.strftime("%Y-%m-%d")
+                query += " AND DATE(c. heure_prevue) >= CAST(%s AS date)"
+                params.append(param_date)
+
         if chauffeur_id:
             query += " AND c.chauffeur_id = %s"
             params.append(chauffeur_id)
+
         if role == "chauffeur":
             query += " AND c.visible_chauffeur = true"
+
         query += """
             ORDER BY
                 DATE(c.heure_prevue) DESC,
                 COALESCE(
                     c.heure_pec_prevue:: time,
-                    (c.heure_prevue AT TIME ZONE 'Europe/Paris')::time
-                ) ASC
+                    (c. heure_prevue AT TIME ZONE 'Europe/Paris')::time
+                ) DESC
         """
-        if days_back >= 3000:
-            query += " LIMIT 1000"
+        
+        # ✅ Limite très élevée si show_all=True
+        if show_all:
+            query += " LIMIT 10000"
         else:
             query += f" LIMIT {limit}"
+
         try:
             cursor.execute(query, params)
             courses = cursor.fetchall()
@@ -481,11 +494,14 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
             print("params:", params)
             release_db_connection(conn)
             return []
+
     except Exception as e:
-        print("get_courses error (normalisation):", e)
+        print("get_courses error:", e)
         release_db_connection(conn)
         return []
+
     release_db_connection(conn)
+
     result = []
     for course in courses:
         result.append({
@@ -500,7 +516,7 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
             'temps_trajet_minutes': course.get('temps_trajet_minutes'),
             'heure_depart_calculee': course.get('heure_depart_calculee'),
             'type_course': course.get('type_course'),
-            'tarif_estime':  course.get('tarif_estime'),
+            'tarif_estime': course.get('tarif_estime'),
             'km_estime': course.get('km_estime'),
             'commentaire': course.get('commentaire'),
             'commentaire_chauffeur': course.get('commentaire_chauffeur'),
@@ -510,7 +526,7 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
             'date_pec': course.get('date_pec'),
             'date_depose': course.get('date_depose'),
             'created_by': course.get('created_by'),
-            'client_regulier_id': course. get('client_regulier_id'),
+            'client_regulier_id': course.get('client_regulier_id'),
             'chauffeur_name': course.get('chauffeur_name'),
             'visible_chauffeur':  course.get('visible_chauffeur', True),
             'km_reel': course.get('km_reel'),
@@ -1344,9 +1360,9 @@ def secretaire_page():
         if not show_all_sec and date_filter:
             date_filter_str = date_filter.strftime('%Y-%m-%d')
         
-        if show_all_sec:
-            st.info(f"📅 Affichage de TOUTES les courses (limite 1000)")
-            courses = get_courses(chauffeur_id=chauffeur_id, date_filter=None, days_back=3650, limit=1000)
+        if show_all_sec: 
+            st.info(f"📅 Affichage de TOUTES les courses (sans limite de date)")
+            courses = get_courses(chauffeur_id=chauffeur_id, show_all=True)
         else:
             date_filter_str = date_filter.strftime('%Y-%m-%d')
             st.info(f"📅 Courses du {date_filter.strftime('%d/%m/%Y')}")
