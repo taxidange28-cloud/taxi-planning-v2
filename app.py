@@ -448,10 +448,13 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
             query += " AND DATE(c.heure_prevue) = CAST(%s AS date)"
             params.append(param_date)
         else:
-            date_limite = (datetime.now(TIMEZONE) - timedelta(days=days_back)).date()
-            param_date = date_limite.strftime("%Y-%m-%d")
-            query += " AND DATE(c. heure_prevue) >= CAST(%s AS date)"
-            params.append(param_date)
+            if days_back >= 3000:
+                pass
+            else:
+                date_limite = (datetime.now(TIMEZONE) - timedelta(days=days_back)).date()
+                param_date = date_limite. strftime("%Y-%m-%d")
+                query += " AND DATE(c.heure_prevue) >= CAST(%s AS date)"
+                params.append(param_date)
         if chauffeur_id:
             query += " AND c.chauffeur_id = %s"
             params.append(chauffeur_id)
@@ -459,13 +462,16 @@ def get_courses(chauffeur_id=None, date_filter=None, role=None, days_back=30, li
             query += " AND c.visible_chauffeur = true"
         query += """
             ORDER BY
-                DATE(c.heure_prevue) ASC,
+                DATE(c.heure_prevue) DESC,
                 COALESCE(
                     c.heure_pec_prevue:: time,
                     (c.heure_prevue AT TIME ZONE 'Europe/Paris')::time
                 ) ASC
         """
-        query += f" LIMIT {limit}"
+        if days_back >= 3000:
+            query += " LIMIT 1000"
+        else:
+            query += f" LIMIT {limit}"
         try:
             cursor.execute(query, params)
             courses = cursor.fetchall()
@@ -1339,8 +1345,11 @@ def secretaire_page():
             date_filter_str = date_filter.strftime('%Y-%m-%d')
         
         if show_all_sec:
-            courses = get_courses(chauffeur_id=chauffeur_id, date_filter=None, days_back=3650)
+            st.info(f"📅 Affichage de TOUTES les courses (limite 1000)")
+            courses = get_courses(chauffeur_id=chauffeur_id, date_filter=None, days_back=3650, limit=1000)
         else:
+            date_filter_str = date_filter.strftime('%Y-%m-%d')
+            st.info(f"📅 Courses du {date_filter.strftime('%d/%m/%Y')}")
             courses = get_courses(chauffeur_id=chauffeur_id, date_filter=date_filter_str)
         
         st.info(f"📊 {len(courses)} course(s)")
