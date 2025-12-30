@@ -1362,7 +1362,18 @@ def secretaire_page():
         
         if show_all_sec: 
             st.info(f"📅 Affichage de TOUTES les courses (sans limite de date)")
+                        st.write("🔍 DEBUG :  Appel de get_courses avec show_all=True")
             courses = get_courses(chauffeur_id=chauffeur_id, show_all=True)
+            st.write(f"🔍 DEBUG :  Retour de {len(courses)} course(s)")
+            st.write(f"🔍 DEBUG : chauffeur_id = {chauffeur_id}")
+            
+            # Afficher la requête SQL réelle
+            import streamlit as st
+            st.code(f"""
+Paramètres :
+- chauffeur_id:  {chauffeur_id}
+- show_all: True
+            """)
         else:
             date_filter_str = date_filter.strftime('%Y-%m-%d')
             st.info(f"📅 Courses du {date_filter.strftime('%d/%m/%Y')}")
